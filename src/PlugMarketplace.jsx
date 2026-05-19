@@ -3957,7 +3957,7 @@ app.use(helmet({
     styleSrc:["'self'","'unsafe-inline'","https://fonts.googleapis.com"],
     fontSrc:["'self'","https://fonts.gstatic.com","data:"],
     imgSrc:["'self'","https://images.unsplash.com","https://cdn.jsdelivr.net","data:","blob:"],
-    connectSrc:["'self'","https://api.anthropic.com"],
+    connectSrc:["'self'","https://api.anthropic.com","https://*.supabase.co","wss://*.supabase.co","https://api.resend.com"],
     frameAncestors:["'self'","https://claude.ai"],
   }},
   hsts:{ maxAge:63072000, includeSubDomains:true, preload:true },
