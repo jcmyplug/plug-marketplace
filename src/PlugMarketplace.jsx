@@ -189,7 +189,7 @@ const SECURITY_HEADERS = Object.freeze({
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' https://images.unsplash.com https://cdn.jsdelivr.net data: blob:",
-      "connect-src 'self' https://api.anthropic.com",
+      "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.resend.com",
       "base-uri 'self'",
       "form-action 'self'",
     ].join("; "),
