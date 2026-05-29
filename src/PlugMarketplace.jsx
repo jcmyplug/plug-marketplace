@@ -1393,10 +1393,30 @@ async function saveRequest(req) {
     await _pSet("req:" + req.id, record);
     return;
   }
-  /* Skip DB write for demo vendors (non-UUID vendor_id). The hardcoded sample
-     vendor cards aren't real rows, so a booking can't reference them. UI still
-     shows success; nothing is persisted. Real vendors (UUID id) write normally. */
-  if (!isRealId(req.vendorId) || !isRealId(req.userId)) return;
+  /* Demo vendor bookings: persist to localStorage instead of DB.
+     They show up in "My Requests" but aren't synced cross-device.
+     Real vendor bookings (UUID) go to the DB normally. */
+  if (!isRealId(req.vendorId) || !isRealId(req.userId)) {
+    try {
+      const key = "plug_demo_requests:" + req.userId;
+      const raw = localStorage.getItem(key);
+      const list = raw ? JSON.parse(raw) : [];
+      const record = {
+        id: req.id, userId: req.userId, vendorId: req.vendorId,
+        vendorName: req.vendorName || "Vendor",
+        userName: req.userName || "Guest",
+        eventType: req.eventType || null,
+        eventDate: req.eventDate || null,
+        guests: req.guests || null,
+        venue: req.venue || null,
+        message: req.message || null,
+        status: "pending",
+        createdAt: Date.now(),
+      };
+      localStorage.setItem(key, JSON.stringify([record, ...list]));
+    } catch {}
+    return;
+  }
 
   await sb.from("booking_requests").insert({
     id: req.id, user_id: req.userId, vendor_id: req.vendorId,
@@ -1434,12 +1454,21 @@ async function getUserRequests(userId) {
     const list = await Promise.all(ids.map(id => _pGet("req:" + id)));
     return list.filter(Boolean).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }
+  /* Load demo bookings from localStorage (for demo vendors that can't go to DB) */
+  let demoReqs = [];
+  try {
+    if (isRealId(userId)) {
+      const raw = localStorage.getItem("plug_demo_requests:" + userId);
+      demoReqs = raw ? JSON.parse(raw) : [];
+    }
+  } catch {}
+
   const { data } = await sb.from("booking_requests")
     .select("*, vendor_profiles!booking_requests_vendor_id_fkey(business_name, biz_legal)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .get();
-  return (data || []).map(r => ({
+  const dbReqs = (data || []).map(r => ({
     id: r.id, userId: r.user_id, vendorId: r.vendor_id,
     vendorName: r.vendor_profiles?.biz_legal || r.vendor_profiles?.business_name || "Vendor",
     eventType: r.event_type, eventDate: r.event_date,
@@ -1447,6 +1476,8 @@ async function getUserRequests(userId) {
     status: r.status, note: r.vendor_note,
     createdAt: new Date(r.created_at).getTime(),
   }));
+  /* Merge DB + demo bookings, newest first */
+  return [...dbReqs, ...demoReqs].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
 async function updateRequestStatus(reqId, status, note = "") {
@@ -2978,6 +3009,20 @@ function AccountPanel({ user, onClose, onLogout }) {
       setRequests(r => r.map(req => req.id === reqId ? { ...req, status: "cancelled" } : req));
       return;
     }
+    /* Demo bookings live in localStorage. reqId starts with REQ- (not a UUID),
+       so we update the localStorage record rather than hitting the DB. */
+    if (typeof reqId === "string" && reqId.startsWith("REQ-")) {
+      try {
+        const key = "plug_demo_requests:" + user.id;
+        const raw = localStorage.getItem(key);
+        const list = raw ? JSON.parse(raw) : [];
+        const next = list.map(r => r.id === reqId ? { ...r, status: "cancelled" } : r);
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {}
+      setRequests(r => r.map(req => req.id === reqId ? { ...req, status: "cancelled" } : req));
+      return;
+    }
+    /* Real booking — update DB */
     const { data } = await sb.from("booking_requests")
       .eq("id", reqId).eq("user_id", user.id).eq("status", "pending")
       .update({ status: "cancelled", updated_at: new Date().toISOString() });
