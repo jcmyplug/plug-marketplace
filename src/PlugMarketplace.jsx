@@ -1688,13 +1688,21 @@ async function storeVerifyCode(userId, type, code) {
   if (IS_PREVIEW) {
     await _pSet("verify:" + type + ":" + userId,
       { code, expires: Date.now() + 10 * 60000 });
-    return;
+    return { ok: true, error: null };
   }
-  await sb.from("verify_codes").insert({
+  const { data, error } = await sb.from("verify_codes").insert({
     user_id: userId, type, code,
     expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
     used: false,
   });
+  if (error) return { ok: false, error: error.message || "Could not store verification code." };
+  /* Empty representation means the INSERT matched no rows — normally RLS on
+     verify_codes rejecting the write. Surface it instead of failing silently,
+     otherwise the user gets a code that was never saved and can never verify. */
+  if (Array.isArray(data) && data.length === 0) {
+    return { ok: false, error: "Verification code could not be saved (blocked by database security policy on verify_codes)." };
+  }
+  return { ok: true, error: null };
 }
 
 async function checkVerifyCode(userId, type, input) {
@@ -1991,6 +1999,7 @@ function AuthModal({ onClose, onAuth }) {
   const [captcha,      setCaptcha]     = useState(() => genCaptcha());
   const [tosAccepted,  setTosAccepted] = useState(false);
   const [forgotMsg,    setForgotMsg]   = useState("");  // password-reset confirmation
+  const [mailError,    setMailError]   = useState(false); // verification email failed to send
 
   /* ── Email verification phase ── */
   const [verifyPhase,  setVerifyPhase] = useState(null);  // null | "email"
@@ -2007,7 +2016,7 @@ function AuthModal({ onClose, onAuth }) {
   const [photoFiles,   setPhotoFiles]  = useState([]);
 
   const [form, setForm] = useState({
-    name:"", email:"", password:"", phone:"", dob:"", setupKey:"", captchaAnswer:"",
+    name:"", firstName:"", lastName:"", email:"", password:"", password2:"", phone:"", dob:"", setupKey:"", captchaAnswer:"",
     business:"", bizLegal:"", bizType:"LLC", bizLicense:"", ein:"",
     yearsInBiz:"", bizPhone:"", bizWebsite:"", managingMembers:"",
     bizAddress:"", bizCity:"", bizState:"TX", bizZip:"",
@@ -2016,7 +2025,18 @@ function AuthModal({ onClose, onAuth }) {
     capacity:"", travelMiles:"", projectSize:"",
   });
 
-  function upd(k, v) { setForm(f=>({...f,[k]:v})); setErr(""); }
+  function upd(k, v) {
+    setForm(f => {
+      const next = { ...f, [k]: v };
+      /* Keep the composed full name in sync — the rest of the app (profiles,
+         display name, vendor records) reads form.name. */
+      if (k === "firstName" || k === "lastName") {
+        next.name = `${(k === "firstName" ? v : next.firstName) || ""} ${(k === "lastName" ? v : next.lastName) || ""}`.trim();
+      }
+      return next;
+    });
+    setErr("");
+  }
 
   const totalSteps = role === "vendor" ? 4 : 2;
 
@@ -2030,13 +2050,28 @@ function AuthModal({ onClose, onAuth }) {
   function validateStep() {
     if (tab === "login") return true;
     if (step === 1) {
-      if (!form.name)     { setErr("Please enter your full name.");     return false; }
+      if (!form.firstName.trim()) { setErr("Please enter your first name."); return false; }
+      if (!form.lastName.trim())  { setErr("Please enter your last name.");  return false; }
       if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
         { setErr("Please enter a valid email address."); return false; }
       if (!form.password) { setErr("Please enter a password."); return false; }
       if (form.password.length < 8) { setErr("Password must be at least 8 characters."); return false; }
       if (!/[A-Z]/.test(form.password) || !/[0-9]/.test(form.password))
         { setErr("Password must contain at least one uppercase letter and one number."); return false; }
+      if (!form.password2) { setErr("Please re-enter your password to confirm it."); return false; }
+      if (form.password !== form.password2) { setErr("Passwords don't match. Please re-enter them."); return false; }
+      if (!form.dob) { setErr("Please enter your date of birth."); return false; }
+      {
+        const dobDate = new Date(form.dob);
+        if (isNaN(dobDate.getTime())) { setErr("Please enter a valid date of birth."); return false; }
+        const now = new Date();
+        let age = now.getFullYear() - dobDate.getFullYear();
+        const m = now.getMonth() - dobDate.getMonth();
+        if (m < 0 || (m === 0 && now.getDate() < dobDate.getDate())) age--;
+        if (dobDate > now) { setErr("Date of birth can't be in the future."); return false; }
+        if (age < 18) { setErr("You must be at least 18 years old to create an account."); return false; }
+        if (age > 120) { setErr("Please enter a valid date of birth."); return false; }
+      }
       if (role === "admin" && form.setupKey.trim() !== CORS_CONFIG.adminSetupKey)
         { setErr("Invalid administrator setup key."); return false; }
       return true;
@@ -2147,6 +2182,8 @@ function AuthModal({ onClose, onAuth }) {
       const meta = {
         role,
         full_name:        form.name,
+        first_name:       form.firstName || null,
+        last_name:        form.lastName  || null,
         display_name:     form.name,
         business_name:    form.business      || null,
         biz_legal:        form.bizLegal      || null,
@@ -2175,6 +2212,10 @@ function AuthModal({ onClose, onAuth }) {
         setLoading(false); return;
       }
       const id = authData.user.id;
+      /* If Supabase returned a session (email confirmation disabled), authenticate
+         the REST client immediately. Otherwise the writes below (vendor app,
+         verification code) run as anon and RLS silently rejects them. */
+      if (!IS_PREVIEW && authData.access_token) sb.setAuth(authData.access_token);
       /* Wait for trigger to create vendor_profiles row */
       if (role === "vendor") {
         await new Promise(r => setTimeout(r, 1000));
@@ -2188,10 +2229,15 @@ function AuthModal({ onClose, onAuth }) {
       }
       /* Generate and store email verification code */
       const code = genVerifyCode();
-      await storeVerifyCode(id, "email", code);
+      const stored = await storeVerifyCode(id, "email", code);
+      if (stored && !stored.ok) {
+        setErr(stored.error + " Your account was created — please use “Forgot password?” to sign in, or contact support.");
+        setLoading(false); return;
+      }
       setDevCode(code);
 
       /* Send the code via Resend (production only — preview shows code on-screen) */
+      let mailFailed = false;
       if (!IS_PREVIEW) {
         try {
           const emailRes = await fetch("/api/send-verification", {
@@ -2200,13 +2246,16 @@ function AuthModal({ onClose, onAuth }) {
             body:    JSON.stringify({ email: form.email, code }),
           });
           if (!emailRes.ok) {
+            mailFailed = true;
             const errText = await emailRes.text().catch(()=>"");
             console.error("[send-verification] failed:", emailRes.status, errText);
           }
         } catch (mailErr) {
+          mailFailed = true;
           console.error("[send-verification] exception:", mailErr);
         }
       }
+      setMailError(mailFailed);
 
       setPendingUser({
         id, type: role,
@@ -2318,6 +2367,20 @@ function AuthModal({ onClose, onAuth }) {
               <p style={{ margin:"4px 0 0", fontSize:11, color:"#B45309", lineHeight:1.5 }}>
                 In production this code would be emailed automatically.
                 Your code is: <strong style={{ fontFamily:"monospace", fontSize:16, letterSpacing:"0.12em" }}>{devCode}</strong>
+              </p>
+            </div>
+          )}
+
+          {/* Email delivery failed — show the code so signup isn't a dead end */}
+          {!IS_PREVIEW && mailError && (
+            <div style={{ background:"#FEF2F2", borderRadius:10, padding:"10px 14px",
+                          marginBottom:16, border:"1px solid #FCA5A5", textAlign:"left" }}>
+              <p style={{ margin:0, fontSize:10, fontWeight:700, color:"#991B1B" }}>
+                ⚠ We couldn't send the verification email
+              </p>
+              <p style={{ margin:"4px 0 0", fontSize:11, color:"#B91C1C", lineHeight:1.5 }}>
+                The email service didn't respond, so your code may not arrive. Use this code
+                to finish signing up: <strong style={{ fontFamily:"monospace", fontSize:16, letterSpacing:"0.12em" }}>{devCode}</strong>
               </p>
             </div>
           )}
@@ -2484,17 +2547,36 @@ function AuthModal({ onClose, onAuth }) {
     /* STEP 1: Account */
     if (step === 1) return (
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {inp("Your full name", "name", "text", true)}
+        <div style={{ display:"flex", gap:8 }}>
+          {inp("First name", "firstName", "text", true)}
+          {inp("Last name",  "lastName",  "text", true)}
+        </div>
         {role === "vendor" && inp("Business / stage name", "business", "text", true)}
         {role === "admin"  && inp("Administrator setup key", "setupKey", "password", true)}
         {inp("Email address", "email", "email", true)}
         {inp("Password (min 8 chars, 1 uppercase, 1 number)", "password", "password", true)}
-        <div style={{ display:"flex", gap:8 }}>
-          {inp("Phone number", "phone", "tel", true)}
-          <input type="date" value={form.dob} onChange={e=>upd("dob",e.target.value)}
-            title="Date of birth"
-            style={{ flex:1, height:44, padding:"0 14px", border:`1px solid ${C.border}`,
-                     borderRadius:10, fontSize:14, color: form.dob?C.black:C.lightGray, background:"#fff" }} />
+        {inp("Confirm password", "password2", "password", true)}
+        {form.password2 && form.password !== form.password2 && (
+          <p style={{ margin:"-4px 0 0", fontSize:11, color:"#B91C1C", fontWeight:600 }}>
+            Passwords don't match.
+          </p>
+        )}
+        {form.password2 && form.password === form.password2 && (
+          <p style={{ margin:"-4px 0 0", fontSize:11, color:C.green, fontWeight:600 }}>
+            ✓ Passwords match.
+          </p>
+        )}
+        {inp("Phone number", "phone", "tel", true)}
+        <div>
+          <label htmlFor="signup-dob"
+            style={{ display:"block", fontSize:12, fontWeight:600, color:C.midGray, marginBottom:4 }}>
+            Date of birth * <span style={{ fontWeight:400 }}>(must be 18 or older)</span>
+          </label>
+          <input id="signup-dob" type="date" value={form.dob} onChange={e=>upd("dob",e.target.value)}
+            max={new Date().toISOString().split("T")[0]}
+            style={{ width:"100%", height:44, padding:"0 14px", border:`1px solid ${C.border}`,
+                     borderRadius:10, fontSize:14, color: form.dob?C.black:C.lightGray,
+                     background:"#fff", boxSizing:"border-box" }} />
         </div>
       </div>
     );
