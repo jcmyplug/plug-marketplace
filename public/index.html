@@ -4,12 +4,47 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#FF5C28" />
-    <meta name="description" content="PLUG — Houston's #1 Event Marketplace. Book food, music, production and logistics vendors for your event." />
-    <title>PLUG — Event Marketplace</title>
+
+    <title>PLUG — Book Food, Music &amp; Venues for Your Event | Houston, TX</title>
+    <meta name="description" content="Build your whole event lineup in one place. Compare food trucks, DJs, venues, decor and rentals in Houston, then send every booking request at once. Free to browse." />
+
+    <!-- Tells search engines which URL is the real one. my-plug.com and the
+         vercel.app domain both serve this app; without this they compete. -->
+    <link rel="canonical" href="https://www.my-plug.com/" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph — without these a shared link renders as a bare URL with no
+         title, description or image in iMessage, WhatsApp, Slack and Facebook. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PLUG" />
+    <meta property="og:url" content="https://www.my-plug.com/" />
+    <meta property="og:title" content="PLUG — Book Food, Music &amp; Venues for Your Event" />
+    <meta property="og:description" content="Build your whole event lineup in one place. Compare food trucks, DJs, venues, decor and rentals in Houston, then send every booking request at once." />
+    <meta property="og:image" content="https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&amp;h=630&amp;fit=crop&amp;q=80" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PLUG — Book Food, Music &amp; Venues for Your Event" />
+    <meta name="twitter:description" content="Build your whole event lineup in one place, then send every booking request at once." />
+    <meta name="twitter:image" content="https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=1200&amp;h=630&amp;fit=crop&amp;q=80" />
+
+    <!-- Inline SVG favicon: no extra file to 404, scales cleanly, dark-mode safe. -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230A0A0A'/><text y='.86em' x='50%25' text-anchor='middle' font-size='68' font-family='Georgia,serif' font-weight='700' fill='%23FF5C28'>p</text></svg>" />
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230A0A0A'/><text y='.86em' x='50%25' text-anchor='middle' font-size='68' font-family='Georgia,serif' font-weight='700' fill='%23FF5C28'>p</text></svg>" />
+
+    <!-- Warm up the connections the first paint actually needs. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://images.unsplash.com" />
+    <link rel="preconnect" href="https://btmqghudfakpbbplrqhf.supabase.co" />
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run PLUG.</noscript>
+    <noscript>
+      PLUG needs JavaScript to run. Please enable it, or email us and we'll help
+      you book by hand.
+    </noscript>
     <div id="root"></div>
   </body>
 </html>
