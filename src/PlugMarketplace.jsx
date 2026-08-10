@@ -4927,11 +4927,19 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
         return;
       }
       setRequests(rs => rs.map(req => (req.id === reqId ? { ...req, status: "cancelled" } : req)));
+    /* A Modify dialog open for this booking is now meaningless. It also sits
+       behind the detail modal, so closing that one would reveal it and look
+       like cancelling had opened an edit form. */
+    setModifying(m => (m && m.id === reqId ? null : m));
       setActionMsg("Booking cancelled.");
       return;
     }
 
     setRequests(rs => rs.map(req => (req.id === reqId ? { ...req, status: "cancelled" } : req)));
+    /* A Modify dialog open for this booking is now meaningless. It also sits
+       behind the detail modal, so closing that one would reveal it and look
+       like cancelling had opened an edit form. */
+    setModifying(m => (m && m.id === reqId ? null : m));
     setActionMsg("Booking cancelled. We've let the vendor know.");
     notifyBookingChange({
       requestId:  reqId,
