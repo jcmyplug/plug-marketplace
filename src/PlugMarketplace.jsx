@@ -9865,6 +9865,17 @@ const INFO_CONTENT = {
     ["Verification documents", "Documents submitted during vendor verification are stored for review and are not shown publicly on listings."],
     ["Your choices", "You can edit your profile and listing information at any time, and you can request deletion of your account by contacting us."],
   ],
+  "Cancellations and refunds": [
+    ["What applies today", "PLUG does not currently collect payment. Booking requests are free to send and free to cancel, and money changes hands directly between you and the vendor. The terms below govern payments made through PLUG and apply from the moment online payment is enabled on a booking. Your booking screen always shows which terms apply to it."],
+    ["Before a vendor accepts", "A request that has not been accepted is not a booking. You can withdraw it at any time at no cost, and nothing is charged."],
+    ["If you cancel a confirmed booking", "Refunds depend on how long before the event start time you cancel. More than 4 days before: refunded in full, less payment processing fees. Three to four days before: 50 percent. Two days before: 25 percent. Within 48 hours of the event: no refund. Vendors may set their own schedule within limits we publish, and venues commonly set stricter terms because they hold a date exclusively. The exact terms for your booking are shown before you pay and are recorded with the booking, so a vendor changing their policy later cannot change yours."],
+    ["What less fees means", "Card processing fees, and any PLUG service fee, are not returned on a refund. They are charged when the payment is taken and are not recoverable afterwards. A refund described as full means the booking amount less those fees, not the total you were charged."],
+    ["If the vendor cancels", "You are refunded in full, including all fees, whatever the timing. Where we can, we will help you find a replacement vendor for your date."],
+    ["Changing a confirmed booking", "Changing the date, guest count or location needs the vendor to approve it, and re-opens the request until they do. If they decline, the original booking stands and the schedule above continues to apply. Changes are not accepted within 48 hours of the event."],
+    ["If a vendor does not turn up", "Contact us within 7 days. Where payment was taken through PLUG we will look into it with both parties and may refund you in full. PLUG does not perform the services and is not the vendor, but no-shows are grounds for removal from the marketplace."],
+    ["Before you contact your bank", "Contact us first. A chargeback raised without contacting us costs the vendor money and takes months to resolve, and we can usually settle it faster directly. Raising a chargeback does not remove your obligations under these terms."],
+  ],
+
   "Marketplace rules": [
     ["Be accurate", "Listings, photos, pricing, capacity and availability must reflect what you actually offer. Do not post photos of work that is not yours."],
     ["Honor your commitments", "Vendors should respond to requests promptly and honor confirmed bookings. Customers should provide accurate event details."],
@@ -11964,7 +11975,7 @@ export default function PlugApp() {
           <span style={{ fontSize:11, color:"#555", marginLeft:6 }}>Houston, TX · © 2026</span>
         </div>
         <div style={{ display:"flex", gap:20 }}>
-          {["About","How it works","Become a vendor","Help center","Terms","Privacy","Marketplace rules"].map(l=>(
+          {["About","How it works","Become a vendor","Help center","Cancellations and refunds","Terms","Privacy","Marketplace rules"].map(l=>(
             <span key={l} onClick={()=>{
                 if (l==="Become a vendor") { setAuthModal(true); return; }
                 setInfoPage(l);
