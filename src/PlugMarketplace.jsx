@@ -4894,31 +4894,45 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
       setRequests(r => r.map(req => req.id === reqId ? { ...req, status: "cancelled" } : req));
       return;
     }
-    /* Demo bookings live in localStorage. reqId starts with REQ- (not a UUID),
-       so we update the localStorage record rather than hitting the DB. */
-    if (typeof reqId === "string" && reqId.startsWith("REQ-")) {
-      try {
-        const key = "plug_demo_requests:" + user.id;
-        const raw = localStorage.getItem(key);
-        const list = raw ? JSON.parse(raw) : [];
-        const next = list.map(r => r.id === reqId ? { ...r, status: "cancelled" } : r);
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch {}
-      setRequests(r => r.map(req => req.id === reqId ? { ...req, status: "cancelled" } : req));
-      return;
-    }
-    /* Real booking — update DB. A customer may cancel a pending OR an already
-       confirmed booking (plans change); the vendor is emailed either way. */
+    /* The database is the source of truth. genRequestId() prefixes EVERY
+       booking with REQ-, real ones included, so the old
+       reqId.startsWith("REQ-") test classified every genuine booking as a
+       local demo and returned before writing: the UI said "cancelled", the
+       row never changed, and a refresh showed it back as pending. Whether a
+       booking is a demo depends on its PARTIES being real accounts, not on
+       the shape of its id, so try the write first and fall back locally only
+       if no row was actually updated. */
     const { data, error } = await sb.from("booking_requests")
       .eq("id", reqId).eq("user_id", user.id)
       .update({ status: "cancelled", updated_at: new Date().toISOString() });
-    if (error || (Array.isArray(data) && data.length === 0)) {
-      setActionMsg("Could not cancel that booking. Please try again.");
+    const row = (Array.isArray(data) ? data[0] : null) || null;
+
+    if (error || !row) {
+      /* Not in the database, so it may be a sample-listing booking held
+         locally. Only treat it as handled if we actually find it there. */
+      let wasLocal = false;
+      try {
+        const key = "plug_demo_requests:" + user.id;
+        const list = JSON.parse(localStorage.getItem(key) || "[]");
+        wasLocal = list.some(x => x.id === reqId);
+        if (wasLocal) {
+          localStorage.setItem(key, JSON.stringify(
+            list.map(x => (x.id === reqId ? { ...x, status: "cancelled" } : x))));
+        }
+      } catch { /* localStorage unavailable */ }
+
+      if (!wasLocal) {
+        console.error("[PLUG] cancel failed", reqId, error);
+        setActionMsg("Could not cancel that booking. Please try again.");
+        return;
+      }
+      setRequests(rs => rs.map(req => (req.id === reqId ? { ...req, status: "cancelled" } : req)));
+      setActionMsg("Booking cancelled.");
       return;
     }
-    setRequests(r => r.map(req => req.id === reqId ? { ...req, status: "cancelled" } : req));
+
+    setRequests(rs => rs.map(req => (req.id === reqId ? { ...req, status: "cancelled" } : req)));
     setActionMsg("Booking cancelled. We've let the vendor know.");
-    const row = (Array.isArray(data) ? data[0] : null) || {};
     notifyBookingChange({
       requestId:  reqId,
       status:     "cancelled",
@@ -4932,10 +4946,9 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
      been completed. Both parties are emailed so nobody works off stale info. */
   async function modifyRequest(reqId, changes) {
     setActionMsg("");
-    if (typeof reqId === "string" && reqId.startsWith("REQ-")) {
-      setActionMsg("This is a local demo booking and can't be modified.");
-      return false;
-    }
+    /* No REQ- special case here either: real bookings carry that prefix too,
+       so this branch rejected every genuine modification. If a row is not in
+       the database the update below simply affects no rows. */
     const r = requests.find(x => x.id === reqId) || {};
     const wasConfirmed = r.status === "confirmed" || r.status === "accepted";
     /* 48-hour rule applies to changing a confirmed booking. */
