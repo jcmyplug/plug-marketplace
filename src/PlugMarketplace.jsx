@@ -8611,13 +8611,17 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
               )}
             </div>
 
-            {/* Verified badge */}
+            {/* Reviewed badge — only on real, approved listings. Demo catalog entries
+                are not real businesses, and the uploaded licence file is never
+                actually stored, so the previous copy overclaimed twice. */}
+            {isLiveVendor && (
             <div style={{ marginTop:14, background:"#F0FDF4", borderRadius:10, padding:"8px 12px", display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:14 }}>✓</span>
               <p style={{ margin:0, fontSize:11, color:"#065F46", lineHeight:1.4 }}>
-                <strong>Verified by PLUG.</strong> Business info, license, and service areas reviewed by our team.
+                <strong>Reviewed by PLUG.</strong> This vendor's business details were checked before their listing went live.
               </p>
             </div>
+            )}
           </div>
         </div>
       </div>
