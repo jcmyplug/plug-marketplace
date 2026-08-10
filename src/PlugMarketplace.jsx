@@ -4777,6 +4777,41 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
   const [modifying,   setModifying]   = useState(null);   // request being edited
   const [selectedReq, setSelectedReq] = useState(null);
 
+  /* ── Account lifecycle (requirement #42) ────────────────────────────
+     Deactivation is reversible and keeps everything. Deletion is permanent,
+     so it asks the user to type the word rather than click twice — a second
+     confirm dialog is muscle memory, typing is a decision. */
+  const [acctBusy, setAcctBusy] = useState(false);
+  const [acctErr,  setAcctErr]  = useState("");
+  const [confirmDelete, setConfirmDelete] = useState("");
+
+  async function handleDeactivate() {
+    if (!window.confirm(
+      "Deactivate your account?\n\nYour listings come down and you cannot book or " +
+      "message, but nothing is deleted. Log back in any time to reactivate.")) return;
+    setAcctBusy(true); setAcctErr("");
+    const { error } = await sb.rpc("deactivate_my_account");
+    setAcctBusy(false);
+    if (error) { setAcctErr(error.message || "Could not deactivate your account."); return; }
+    onLogout();
+  }
+
+  async function handleDeleteAccount() {
+    if (confirmDelete.trim().toUpperCase() !== "DELETE") {
+      setAcctErr("Type DELETE to confirm."); return;
+    }
+    setAcctBusy(true); setAcctErr("");
+    const { error } = await sb.rpc("delete_my_account");
+    setAcctBusy(false);
+    if (error) {
+      setAcctErr((error.message || "").indexOf("admin") >= 0
+        ? "Admin accounts cannot be deleted here. Remove admin access first."
+        : (error.message || "Could not delete your account."));
+      return;
+    }
+    onLogout();
+  }
+
   useEffect(() => {
     RLS.getMyRequests(user).then(r => {
       const fetched = Array.isArray(r) ? r : [];
@@ -5302,6 +5337,61 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
                 ))}
               </div>
             </div>
+          )}
+        </div>
+
+        {/* ── Danger zone ── requirement #42, and a GDPR / CCPA obligation.
+            Until now the only thing you could do to your own account here was
+            log out. */}
+        <div style={{ margin:"4px 18px 0", padding:"14px 0 2px",
+                      borderTop:"1px solid " + C.border }}>
+          <p style={{ margin:"0 0 4px", fontSize:11, fontWeight:800, color:C.midGray,
+                      textTransform:"uppercase", letterSpacing:"0.06em" }}>
+            Your account
+          </p>
+
+          <button type="button" onClick={handleDeactivate} disabled={acctBusy}
+            style={{ width:"100%", textAlign:"left", padding:"10px 12px", marginTop:8,
+                     borderRadius:10, background:"#F9FAFB",
+                     border:"1px solid " + C.border,
+                     cursor: acctBusy ? "default" : "pointer" }}>
+            <span style={{ fontSize:13, fontWeight:700, color:C.black }}>Deactivate</span>
+            <span style={{ display:"block", fontSize:11, color:C.midGray, marginTop:2, lineHeight:1.5 }}>
+              Takes your listings down and pauses bookings. Nothing is deleted —
+              log back in to undo it.
+            </span>
+          </button>
+
+          <div style={{ marginTop:10, padding:"10px 12px", borderRadius:10,
+                        background:"#FEF2F2", border:"1px solid #FECACA" }}>
+            <p style={{ margin:0, fontSize:13, fontWeight:700, color:"#B91C1C" }}>
+              Delete permanently
+            </p>
+            <p style={{ margin:"2px 0 8px", fontSize:11, color:"#991B1B", lineHeight:1.5 }}>
+              Erases your profile, listings, bookings, messages and reviews.
+              This cannot be undone.
+            </p>
+            <input
+              value={confirmDelete}
+              onChange={e => { setConfirmDelete(e.target.value); setAcctErr(""); }}
+              placeholder="Type DELETE to confirm"
+              aria-label="Type DELETE to confirm permanent account deletion"
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, fontSize:12,
+                       border:"1px solid #FCA5A5", background:"#fff", boxSizing:"border-box" }} />
+            <button type="button" onClick={handleDeleteAccount}
+              disabled={acctBusy || confirmDelete.trim().toUpperCase() !== "DELETE"}
+              style={{ width:"100%", marginTop:8, padding:"9px 0", borderRadius:8,
+                       border:"none", fontSize:12.5, fontWeight:700, color:"#fff",
+                       background: confirmDelete.trim().toUpperCase() === "DELETE" ? "#DC2626" : "#FCA5A5",
+                       cursor: (!acctBusy && confirmDelete.trim().toUpperCase() === "DELETE") ? "pointer" : "default" }}>
+              {acctBusy ? "Deleting…" : "Delete my account"}
+            </button>
+          </div>
+
+          {acctErr && (
+            <p role="alert" style={{ margin:"8px 0 0", fontSize:11.5, fontWeight:600, color:"#B91C1C" }}>
+              {acctErr}
+            </p>
           )}
         </div>
 
