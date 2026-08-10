@@ -1572,6 +1572,28 @@ async function clearSession() {
    resolves the caller, confirms they are party to the booking, and takes the
    recipient address from the database. Sent alongside the existing body so
    the previous handler keeps working until the new one is deployed. */
+/* Contact details live in the platform_settings table, not in this bundle,
+   so the address can be changed in the Supabase table editor without a code
+   change, a rebuild or a deploy. These are the fallbacks used before the first
+   fetch resolves, or if it fails. */
+const CONTACT_FALLBACK = Object.freeze({
+  contact_email:    "info@my-plug.com",
+  contact_location: "Houston, TX",
+  support_hours:    "We reply within 1 business day",
+});
+let _platformSettings = { ...CONTACT_FALLBACK };
+
+async function loadPlatformSettings() {
+  if (IS_PREVIEW) return _platformSettings;
+  try {
+    const { data } = await sb.from("platform_settings").select("key, value").get();
+    (data || []).forEach(r => {
+      if (r && r.key && r.value) _platformSettings[r.key] = r.value;
+    });
+  } catch { /* keep the fallbacks */ }
+  return _platformSettings;
+}
+
 function apiAuthHeaders() {
   const h = { "Content-Type": "application/json" };
   const t = sb.getAuthToken ? sb.getAuthToken() : null;
@@ -9833,6 +9855,9 @@ const INFO_CONTENT = {
 };
 
 function InfoPageModal({ page, onClose }) {
+  /* Fetched on open so a changed address appears without a redeploy. */
+  const [contact, setContact] = useState(_platformSettings);
+  useEffect(() => { loadPlatformSettings().then(s => setContact({ ...s })); }, []);
   const sections = INFO_CONTENT[page] || [];
   /* Escape closes it. */
   useEffect(() => {
@@ -9908,6 +9933,25 @@ function InfoPageModal({ page, onClose }) {
               <p style={{ margin:0, fontSize:13.5, lineHeight:1.7, color:"#444" }}>{body}</p>
             </div>
           ))}
+          {/* Every legal page ends with a way to reach a human. A privacy policy
+              that says "contact us" without giving an address is not a policy,
+              and commercial email needs a real one. */}
+          <div style={{ marginTop:8, padding:"12px 14px", borderRadius:12,
+                        background:"#F9FAFB", border:"1px solid " + C.border }}>
+            <h3 style={{ margin:"0 0 5px", fontSize:14.5, fontWeight:800 }}>Contact us</h3>
+            <p style={{ margin:0, fontSize:13.5, lineHeight:1.7, color:"#444" }}>
+              Questions about this page, your data, or a booking? Email{" "}
+              <a href={"mailto:" + contact.contact_email}
+                 style={{ color:C.orange, fontWeight:700 }}>{contact.contact_email}</a>
+              {contact.contact_location ? " · " + contact.contact_location : ""}
+              {contact.support_hours ? " · " + contact.support_hours : ""}.
+            </p>
+            <p style={{ margin:"6px 0 0", fontSize:13.5, lineHeight:1.7, color:"#444" }}>
+              To delete your account and everything on it, open your account
+              menu and use Delete permanently. You do not need to email us.
+            </p>
+          </div>
+
           <p style={{ margin:"6px 0 0", fontSize:11, color:C.lightGray, textAlign:"center" }}>
             — end of {page} —
           </p>
