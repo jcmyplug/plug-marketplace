@@ -377,7 +377,7 @@ const DEFAULT_MARKET = MARKETS[0]; // Houston, TX
 const I18N = Object.freeze({
   "en-US": {
     tagline:    "Book the perfect vendor. Build your entire event.",
-    subtagline: "Food, music, production & logistics — vetted vendors, one platform.",
+    subtagline: "Food, music, venues, decor and rentals — your whole event, one cart.",
     bookNow:    "Book now",
     sendRequest:"Send booking request",
     addToCart:  "Add to event",
@@ -4225,7 +4225,7 @@ function AuthModal({ onClose, onAuth }) {
             {tab === "login"
               ? "5 failed attempts trigger a 15-minute lockout."
               : role === "vendor"
-              ? "All vendors are manually verified before listing services."
+              ? "Every vendor application is reviewed before their listings go live."
               : "A verification code will be sent to your email."}
           </p>
         </div>
@@ -7205,13 +7205,13 @@ function HowItWorks() {
 
 function StatsTicker({ market }) {
   const items = [
-    `✦ ${market?.stats?.vendors || "200+"}+ verified vendors`,
-    `⚡ Instant booking available`,
+    `✦ Every vendor application reviewed before listings go live`,
+    `⚡ Request several vendors in one go`,
     `📍 Serving ${market?.label || "Houston, TX"} & surrounding areas`,
-    `⭐ ${PLATFORM_STATS.rating} average rating across all vendors`,
-    `🎉 ${market?.stats?.events || "1,240"}+ events successfully booked`,
+    `💬 Message vendors directly before you book`,
+    `🆓 Free to browse and send requests`,
     `🌍 Expanding to Dallas, Austin, Miami & beyond`,
-    `🔒 Every vendor manually verified by our team`,
+    `📅 Change or cancel up to 48 hours before your event`,
     `💼 Weddings · Birthdays · Corporate · Concerts · Quinceañeras`,
   ];
   const doubled = [...items, ...items];
@@ -11399,7 +11399,7 @@ export default function PlugApp() {
                 <span style={{ color:C.orange }}>Build your entire event.</span>
               </h1>
               <p style={{ fontSize:16, color:"rgba(255,255,255,0.75)", lineHeight:1.75, margin:"0 0 28px", fontWeight:400 }}>
-                Food, music, production & logistics — vetted vendors, instant booking, one platform.
+                Food, music, venues, decor and rentals — build your whole lineup in one cart, then send every request at once.
               </p>
               {/* Search pill — glassmorphism */}
               <div style={{ background:"rgba(255,255,255,0.15)", backdropFilter:"blur(20px)",
@@ -11495,7 +11495,7 @@ export default function PlugApp() {
           <div style={{ position:"absolute", bottom:0, left:0, right:0,
                         background:"rgba(0,0,0,0.65)", backdropFilter:"blur(8px)",
                         padding:"12px 6%", display:"flex", gap:0 }}>
-            {[["6,000+","Vetted vendors"],["5","Event categories"],["35+","Subcategories"],["Houston, TX","Live now"]].map(([v,l],i)=>(
+            {[["8","Service categories"],["50+","Service types"],["Houston, TX","Live now"],["Free","To browse & request"]].map(([v,l],i)=>(
               <div key={l} style={{ flex:1, padding:"4px 0",
                                     borderRight: i<3?"1px solid rgba(255,255,255,0.12)":undefined,
                                     paddingLeft: i>0?24:0 }}>
@@ -11756,7 +11756,7 @@ export default function PlugApp() {
                 {[
                   { img:"https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=600&q=80", title:"Plan your next event", desc:"Use Build My Event to get matched with the best vendors for your occasion.", cta:"Start planning →", action:()=>pickCat("build") },
                   { img:"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600&q=80", title:"List your services", desc:"Are you a vendor or service provider? Sign up and get discovered by thousands.", cta:"Become a vendor →", action:()=>setAuthModal(true) },
-                  { img:"https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=600&q=80", title:"Book with confidence", desc:"Every vendor is vetted. Read real reviews, compare prices, and book in minutes.", cta:"Browse vendors →", action:goBrowseVendors },
+                  { img:"https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=600&q=80", title:"Book with confidence", desc:"Every vendor application is reviewed before their listing goes live. Compare prices, message directly, request in minutes.", cta:"Browse vendors →", action:goBrowseVendors },
                 ].map(card=>(
                   <div key={card.title} className="card"
                     style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:18,
