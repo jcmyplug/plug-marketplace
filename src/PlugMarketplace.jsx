@@ -5305,14 +5305,14 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
                         }
                         return (
                         <div style={{ marginTop:8 }}>
-                          <button onClick={() => cancelRequest(req.id)} className="btn"
+                          <button onClick={e => { e.stopPropagation(); cancelRequest(req.id); }} className="btn"
                             style={{ width:"100%", padding:"7px 0", borderRadius:9,
                                      background:"#F3F4F6", color:C.midGray,
                                      border:"1px solid #E5E7EB", fontSize:12, fontWeight:600,
                                      display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
                             ✕ Cancel booking
                           </button>
-                          <button onClick={() => setModifying(req)} className="btn"
+                          <button onClick={e => { e.stopPropagation(); setModifying(req); }} className="btn"
                             style={{ width:"100%", padding:"7px 0", borderRadius:9, marginTop:6,
                                      background:"#fff", color:C.black,
                                      border:`1px solid ${C.border}`, fontSize:12, fontWeight:600 }}>
