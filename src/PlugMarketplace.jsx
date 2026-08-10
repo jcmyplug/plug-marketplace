@@ -1128,7 +1128,51 @@ const sb = (() => {
      policies (is_admin(), auth.uid() = id) silently filter the row out,
      returning HTTP 200 with an empty body [] and no actual change. */
   let _authToken = null;
-  function setAuth(token) { _authToken = token || null; }
+  let _refreshToken = null;
+  let _refreshing = null;
+  function setAuth(token, refresh) {
+    _authToken = token || null;
+    if (refresh !== undefined) _refreshToken = refresh || null;
+  }
+
+  /* Supabase access tokens expire after an hour. Without this, every
+     authenticated request 401s from then on and the app silently half-works
+     until the user logs out and back in. Exchange the refresh token for a new
+     pair, update the saved session, and let the caller retry. Guarded so a
+     burst of parallel 401s triggers one refresh rather than twenty. */
+  function refreshAuth() {
+    if (!_refreshToken) return Promise.resolve(false);
+    if (_refreshing) return _refreshing;
+    _refreshing = (async () => {
+      try {
+        const r = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON },
+          body: JSON.stringify({ refresh_token: _refreshToken }),
+        });
+        if (!r.ok) { _refreshToken = null; return false; }
+        const d = await r.json().catch(() => null);
+        if (!d || !d.access_token) return false;
+        _authToken = d.access_token;
+        if (d.refresh_token) _refreshToken = d.refresh_token;
+        try {
+          const raw = localStorage.getItem("plug_session");
+          if (raw) {
+            const s = JSON.parse(raw);
+            s.access_token = _authToken;
+            if (d.refresh_token) s.refresh_token = d.refresh_token;
+            localStorage.setItem("plug_session", JSON.stringify(s));
+          }
+        } catch { /* storage unavailable */ }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        _refreshing = null;
+      }
+    })();
+    return _refreshing;
+  }
   /* Exposed so our own /api routes can authenticate the caller. Those
      endpoints verify this JWT and read the recipient out of the database
      rather than trusting anything in the request body. */
@@ -1147,11 +1191,15 @@ const sb = (() => {
   async function rest(method, path, body) {
     if (IS_PREVIEW) return previewRest(method, path, body);
     try {
-      const res = await fetch(SUPABASE_URL + "/rest/v1" + path, {
+      const send = () => fetch(SUPABASE_URL + "/rest/v1" + path, {
         method,
         headers: { ...headers, "Authorization": userAuth(), "Prefer": "return=representation" },
         body: body ? JSON.stringify(body) : undefined,
       });
+      let res = await send();
+      /* Token expired mid-session: refresh once and retry, rather than
+         surfacing a 401 the caller has no way to recover from. */
+      if (res.status === 401 && await refreshAuth()) res = await send();
       const data = await res.json().catch(() => null);
       if (!res.ok) { console.error("[Supabase]", path, data); return { data: null, error: data }; }
       return { data, error: null };
@@ -1285,11 +1333,13 @@ const sb = (() => {
   async function rpc(fn, args = {}) {
     if (IS_PREVIEW) return { data: null, error: { message: "Not available in preview mode." } };
     try {
-      const res = await fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, {
+      const send = () => fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, {
         method: "POST",
         headers: { ...headers, "Authorization": userAuth() },
         body: JSON.stringify(args),
       });
+      let res = await send();
+      if (res.status === 401 && await refreshAuth()) res = await send();
       const data = await res.json().catch(() => null);
       if (!res.ok) { console.error("[Supabase rpc]", fn, data); return { data: null, error: data }; }
       return { data, error: null };
@@ -1523,7 +1573,7 @@ async function saveUser(u) {
 async function saveSession(session) {
   /* Save session — window.storage in preview, localStorage in production */
   /* Tell the REST client which user it's acting as, so writes pass RLS. */
-  if (!IS_PREVIEW) sb.setAuth(session?.access_token || null);
+  if (!IS_PREVIEW) sb.setAuth(session?.access_token || null, session?.refresh_token || null);
   if (IS_PREVIEW && typeof window !== "undefined" && window.storage) {
     try {
       /* In preview, session is the full previewSignIn response */
@@ -1561,7 +1611,7 @@ async function clearSession() {
     try { const r = await window.storage.get("plug_session"); s = r ? JSON.parse(r.value) : null; } catch {}
   } else { s = _loadSessionLocal(); }
   if (s?.access_token && !IS_PREVIEW) await sb.signOut(s.access_token);
-  if (!IS_PREVIEW) sb.setAuth(null);
+  if (!IS_PREVIEW) sb.setAuth(null, null);
   _clearSessionLocal();
   if (IS_PREVIEW && typeof window !== "undefined" && window.storage) {
     try { await window.storage.delete("plug_session"); } catch {}
@@ -1622,7 +1672,7 @@ async function getCurrentUser() {
 
   /* On a fresh page load saveSession() isn't called again — rehydrate the
      REST client's auth token from the restored session so writes pass RLS. */
-  if (!IS_PREVIEW) sb.setAuth(session.access_token);
+  if (!IS_PREVIEW) sb.setAuth(session.access_token, session.refresh_token);
 
   /* Preview mode — load from window.storage tables */
   if (IS_PREVIEW) {
@@ -2307,7 +2357,7 @@ async function saveRequest(req) {
      (auth.uid() = user_id) would silently reject it — leaving no row while the
      email still sends. Re-hydrate from the stored session to prevent that. */
   if (!IS_PREVIEW) {
-    try { const s = _loadSessionLocal(); if (s?.access_token) sb.setAuth(s.access_token); } catch {}
+    try { const s = _loadSessionLocal(); if (s?.access_token) sb.setAuth(s.access_token, s.refresh_token); } catch {}
   }
   const { error } = await sb.from("booking_requests").insert({
     id: req.id, user_id: req.userId, vendor_id: req.vendorId,
@@ -3429,7 +3479,7 @@ function AuthModal({ onClose, onAuth }) {
       /* If Supabase returned a session (email confirmation disabled), authenticate
          the REST client immediately. Otherwise the writes below (vendor app,
          verification code) run as anon and RLS silently rejects them. */
-      if (!IS_PREVIEW && authData.access_token) sb.setAuth(authData.access_token);
+      if (!IS_PREVIEW && authData.access_token) sb.setAuth(authData.access_token, authData.refresh_token);
       /* Wait for trigger to create vendor_profiles row */
       if (role === "vendor") {
         await new Promise(r => setTimeout(r, 1000));
