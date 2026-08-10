@@ -1129,6 +1129,10 @@ const sb = (() => {
      returning HTTP 200 with an empty body [] and no actual change. */
   let _authToken = null;
   function setAuth(token) { _authToken = token || null; }
+  /* Exposed so our own /api routes can authenticate the caller. Those
+     endpoints verify this JWT and read the recipient out of the database
+     rather than trusting anything in the request body. */
+  function getAuthToken() { return _authToken; }
 
   const headers = {
     "Content-Type":  "application/json",
@@ -1292,7 +1296,7 @@ const sb = (() => {
     } catch (e) { return { data: null, error: e }; }
   }
 
-  return { rest, rpc, signUp, signIn, signOut, getUser, from, channel, setAuth, recover, updateUserPassword };
+  return { rest, rpc, signUp, signIn, signOut, getUser, from, channel, setAuth, getAuthToken, recover, updateUserPassword };
 })();
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -1562,6 +1566,17 @@ async function clearSession() {
   if (IS_PREVIEW && typeof window !== "undefined" && window.storage) {
     try { await window.storage.delete("plug_session"); } catch {}
   }
+}
+
+/* Headers for our own /api routes. They require a Supabase JWT: the handler
+   resolves the caller, confirms they are party to the booking, and takes the
+   recipient address from the database. Sent alongside the existing body so
+   the previous handler keeps working until the new one is deployed. */
+function apiAuthHeaders() {
+  const h = { "Content-Type": "application/json" };
+  const t = sb.getAuthToken ? sb.getAuthToken() : null;
+  if (t) h.Authorization = "Bearer " + t;
+  return h;
 }
 
 async function loadSession() {
@@ -2452,13 +2467,13 @@ async function notifyBookingDecision({ requestId, status, customerId, vendorId, 
   const sends = [];
   if (customer?.email) {
     sends.push(fetch("/api/send-booking-notification", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: apiAuthHeaders(),
       body: JSON.stringify({ ...shared, to: customer.email, role: "customer" }),
     }));
   }
   if (vendor?.email) {
     sends.push(fetch("/api/send-booking-notification", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: apiAuthHeaders(),
       body: JSON.stringify({ ...shared, to: vendor.email, role: "vendor" }),
     }));
   }
@@ -3426,7 +3441,7 @@ function AuthModal({ onClose, onAuth }) {
         try {
           const emailRes = await fetch("/api/send-verification", {
             method:  "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: apiAuthHeaders(),
             body:    JSON.stringify({ email: form.email, code }),
           });
           if (!emailRes.ok) {
@@ -3493,7 +3508,7 @@ function AuthModal({ onClose, onAuth }) {
         try {
           await fetch("/api/send-verification", {
             method:  "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: apiAuthHeaders(),
             body:    JSON.stringify({ email: pendingUser.email, code }),
           });
         } catch (mailErr) {
