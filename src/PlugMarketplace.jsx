@@ -2530,9 +2530,13 @@ async function getVendorAvailability(vendorId) {
      written to vendor_availability (e.g. accepted before that was wired up).
      This is the source of truth for "already booked". */
   try {
-    const { data: booked } = await sb.from("booking_requests")
-      .select("event_date, status").eq("vendor_id", vendorId)
-      .in("status", ["confirmed", "accepted"]).get();
+    const { data: booked } = await sb.from("vendor_booked_dates")
+      /* Public view exposing only (vendor_id, event_date) for confirmed
+         bookings. booking_requests itself is not readable by anon - it holds
+         customer street addresses and access notes - so querying it here
+         returned a permission error for logged-out visitors and the calendar
+         showed already-booked dates as free. */
+      .select("event_date").eq("vendor_id", vendorId).get();
     (booked || []).forEach(b => { if (b.event_date) confirmed.add(b.event_date); });
   } catch { /* table/columns may lag — fall back to calendar rows only */ }
   return { blocked, confirmed: [...confirmed] };
