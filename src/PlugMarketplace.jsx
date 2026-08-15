@@ -4875,8 +4875,15 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
 }
 
 
-function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSaved }) {
-  const [tab,         setTab]       = useState("requests");
+function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSaved, initialTab }) {
+  /* initialTab lets a notification open the panel straight onto the right tab.
+     Clicking "Ana Banana replied" used to open the panel on Requests and leave
+     the person to go find the message themselves. */
+  const [tab,         setTab]       = useState(initialTab || "requests");
+  /* "info" | "account". Account settings is a sub-page of Profile, not a
+     top-level tab, so the destructive controls take two deliberate steps to
+     reach and are not sitting on screen the rest of the time. */
+  const [profileView, setProfileView] = useState("info");
   const [reqView,     setReqView]   = useState("list");   // 'list' | 'calendar'
   const [requests,    setRequests]  = useState([]);
   const [loading,     setLoading]   = useState(true);
@@ -4894,25 +4901,29 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
   const [acctErr,  setAcctErr]  = useState("");
   const [confirmDelete, setConfirmDelete] = useState("");
 
-  async function handleDeactivate() {
-    if (!window.confirm(
-      "Deactivate your account?\n\nYour listings come down and you cannot book or " +
-      "message, but nothing is deleted. Log back in any time to reactivate.")) return;
+  /* null | "deactivate" | "delete". Neither action runs straight off its
+     button: it opens the dialog below, which spells out what is about to
+     happen and makes the person say yes a second time. */
+  const [confirmAction, setConfirmAction] = useState(null);
+
+  async function doDeactivate() {
     setAcctBusy(true); setAcctErr("");
     const { error } = await sb.rpc("deactivate_my_account");
     setAcctBusy(false);
-    if (error) { setAcctErr(error.message || "Could not deactivate your account."); return; }
+    if (error) {
+      setConfirmAction(null);
+      setAcctErr(error.message || "Could not deactivate your account.");
+      return;
+    }
     onLogout();
   }
 
-  async function handleDeleteAccount() {
-    if (confirmDelete.trim().toUpperCase() !== "DELETE") {
-      setAcctErr("Type DELETE to confirm."); return;
-    }
+  async function doDeleteAccount() {
     setAcctBusy(true); setAcctErr("");
     const { error } = await sb.rpc("delete_my_account");
     setAcctBusy(false);
     if (error) {
+      setConfirmAction(null);
       setAcctErr((error.message || "").indexOf("admin") >= 0
         ? "Admin accounts cannot be deleted here. Remove admin access first."
         : (error.message || "Could not delete your account."));
@@ -5441,7 +5452,82 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
           {tab === "saved" && <SavedVendorsPanel userId={user.id} allCards={allCards} />}
 
           {/* ── PROFILE TAB ── */}
-          {tab === "profile" && (
+          {/* ── PROFILE TAB ── with Account settings as a sub-page. The
+              deactivate and delete controls used to sit in the main panel,
+              visible on every visit, one stray tap from something
+              irreversible. They now live at Profile → Account settings and
+              nowhere else. */}
+          {tab === "profile" && profileView === "account" && (
+            <div>
+              <button type="button"
+                onClick={() => { setProfileView("info"); setAcctErr(""); }}
+                className="btn"
+                style={{ background:"none", border:"none", padding:"0 0 10px",
+                         fontSize:12, fontWeight:700, color:C.midGray, cursor:"pointer" }}>
+                ‹ Back to profile
+              </button>
+
+              <p style={{ margin:"0 0 4px", fontSize:15, fontWeight:800, color:C.black }}>
+                Account settings
+              </p>
+              <p style={{ margin:"0 0 14px", fontSize:12, color:C.midGray, lineHeight:1.6 }}>
+                Pausing or closing your PLUG account.
+              </p>
+
+              <button type="button" onClick={() => { setAcctErr(""); setConfirmAction("deactivate"); }}
+                disabled={acctBusy}
+                style={{ width:"100%", textAlign:"left", padding:"12px 14px",
+                         borderRadius:12, background:"#F9FAFB",
+                         border:"1px solid " + C.border,
+                         cursor: acctBusy ? "default" : "pointer" }}>
+                <span style={{ fontSize:13.5, fontWeight:800, color:C.black }}>Deactivate my account</span>
+                <span style={{ display:"block", fontSize:11.5, color:C.midGray, marginTop:3, lineHeight:1.55 }}>
+                  Takes your listings down and pauses bookings. Nothing is
+                  deleted — log back in any time to undo it.
+                </span>
+              </button>
+
+              <div style={{ marginTop:12, padding:"12px 14px", borderRadius:12,
+                            background:"#FEF2F2", border:"1px solid #FECACA" }}>
+                <p style={{ margin:0, fontSize:13.5, fontWeight:800, color:"#B91C1C" }}>
+                  Delete my account permanently
+                </p>
+                <p style={{ margin:"3px 0 10px", fontSize:11.5, color:"#991B1B", lineHeight:1.55 }}>
+                  Erases your profile, listings, bookings, messages and reviews.
+                  This cannot be undone, and we cannot recover it for you.
+                </p>
+                <input
+                  value={confirmDelete}
+                  onChange={e => { setConfirmDelete(e.target.value); setAcctErr(""); }}
+                  placeholder="Type DELETE to continue"
+                  aria-label="Type DELETE to confirm permanent account deletion"
+                  style={{ width:"100%", padding:"9px 10px", borderRadius:8, fontSize:12,
+                           border:"1px solid #FCA5A5", background:"#fff", boxSizing:"border-box" }} />
+                <button type="button"
+                  onClick={() => {
+                    if (confirmDelete.trim().toUpperCase() !== "DELETE") {
+                      setAcctErr("Type DELETE in the box above to continue."); return;
+                    }
+                    setAcctErr(""); setConfirmAction("delete");
+                  }}
+                  disabled={acctBusy}
+                  style={{ width:"100%", marginTop:8, padding:"10px 0", borderRadius:8,
+                           border:"none", fontSize:12.5, fontWeight:800, color:"#fff",
+                           background: confirmDelete.trim().toUpperCase() === "DELETE" ? "#DC2626" : "#FCA5A5",
+                           cursor: acctBusy ? "default" : "pointer" }}>
+                  Delete my account
+                </button>
+              </div>
+
+              {acctErr && (
+                <p role="alert" style={{ margin:"10px 0 0", fontSize:11.5, fontWeight:600, color:"#B91C1C" }}>
+                  {acctErr}
+                </p>
+              )}
+            </div>
+          )}
+
+          {tab === "profile" && profileView !== "account" && (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               <div style={{ background:"#F9FAFB", borderRadius:12, padding:"12px 14px",
                             border:`1px solid ${C.border}` }}>
@@ -5466,64 +5552,102 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
                   </div>
                 ))}
               </div>
+
+              {/* Entry point to the destructive controls. Requirement #42 and a
+                  GDPR / CCPA obligation, but it does not need to be on screen
+                  every time somebody checks their own phone number. */}
+              <button type="button"
+                onClick={() => { setProfileView("account"); setAcctErr(""); }}
+                style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                         width:"100%", textAlign:"left", padding:"12px 14px",
+                         borderRadius:12, background:"#fff",
+                         border:`1px solid ${C.border}`, cursor:"pointer" }}>
+                <span>
+                  <span style={{ fontSize:13, fontWeight:800, color:C.black }}>⚙️ Account settings</span>
+                  <span style={{ display:"block", fontSize:11, color:C.midGray, marginTop:2 }}>
+                    Deactivate or delete your account
+                  </span>
+                </span>
+                <span style={{ fontSize:16, color:C.lightGray }}>›</span>
+              </button>
             </div>
           )}
         </div>
 
-        {/* ── Danger zone ── requirement #42, and a GDPR / CCPA obligation.
-            Until now the only thing you could do to your own account here was
-            log out. */}
-        <div style={{ margin:"4px 18px 0", padding:"14px 0 2px",
-                      borderTop:"1px solid " + C.border }}>
-          <p style={{ margin:"0 0 4px", fontSize:11, fontWeight:800, color:C.midGray,
-                      textTransform:"uppercase", letterSpacing:"0.06em" }}>
-            Your account
-          </p>
+        {/* ── Confirmation dialog ───────────────────────────────────────────
+            Deliberately not window.confirm: that cannot say what is about to
+            happen in any detail, looks like a scam prompt, and some browsers
+            let people suppress it entirely. */}
+        {confirmAction && (() => {
+          const isDelete = confirmAction === "delete";
+          return (
+            <div role="dialog" aria-modal="true"
+                 aria-label={isDelete ? "Confirm permanent deletion" : "Confirm deactivation"}
+                 style={{ position:"fixed", inset:0, zIndex:9999, background:"rgba(10,10,10,0.55)",
+                          display:"flex", alignItems:"center", justifyContent:"center", padding:18 }}
+                 onClick={() => { if (!acctBusy) setConfirmAction(null); }}>
+              <div onClick={e => e.stopPropagation()}
+                   style={{ background:"#fff", borderRadius:16, maxWidth:420, width:"100%",
+                            padding:"20px 20px 16px", boxShadow:"0 20px 60px rgba(0,0,0,0.35)" }}>
+                <p style={{ margin:"0 0 8px", fontSize:17, fontWeight:800,
+                            color: isDelete ? "#B91C1C" : C.black }}>
+                  {isDelete ? "Permanently delete your account?" : "Deactivate your account?"}
+                </p>
 
-          <button type="button" onClick={handleDeactivate} disabled={acctBusy}
-            style={{ width:"100%", textAlign:"left", padding:"10px 12px", marginTop:8,
-                     borderRadius:10, background:"#F9FAFB",
-                     border:"1px solid " + C.border,
-                     cursor: acctBusy ? "default" : "pointer" }}>
-            <span style={{ fontSize:13, fontWeight:700, color:C.black }}>Deactivate</span>
-            <span style={{ display:"block", fontSize:11, color:C.midGray, marginTop:2, lineHeight:1.5 }}>
-              Takes your listings down and pauses bookings. Nothing is deleted —
-              log back in to undo it.
-            </span>
-          </button>
+                <p style={{ margin:"0 0 10px", fontSize:13, color:C.midGray, lineHeight:1.6 }}>
+                  {isDelete
+                    ? "This is final. Here is exactly what happens:"
+                    : "Here is exactly what happens:"}
+                </p>
 
-          <div style={{ marginTop:10, padding:"10px 12px", borderRadius:10,
-                        background:"#FEF2F2", border:"1px solid #FECACA" }}>
-            <p style={{ margin:0, fontSize:13, fontWeight:700, color:"#B91C1C" }}>
-              Delete permanently
-            </p>
-            <p style={{ margin:"2px 0 8px", fontSize:11, color:"#991B1B", lineHeight:1.5 }}>
-              Erases your profile, listings, bookings, messages and reviews.
-              This cannot be undone.
-            </p>
-            <input
-              value={confirmDelete}
-              onChange={e => { setConfirmDelete(e.target.value); setAcctErr(""); }}
-              placeholder="Type DELETE to confirm"
-              aria-label="Type DELETE to confirm permanent account deletion"
-              style={{ width:"100%", padding:"8px 10px", borderRadius:8, fontSize:12,
-                       border:"1px solid #FCA5A5", background:"#fff", boxSizing:"border-box" }} />
-            <button type="button" onClick={handleDeleteAccount}
-              disabled={acctBusy || confirmDelete.trim().toUpperCase() !== "DELETE"}
-              style={{ width:"100%", marginTop:8, padding:"9px 0", borderRadius:8,
-                       border:"none", fontSize:12.5, fontWeight:700, color:"#fff",
-                       background: confirmDelete.trim().toUpperCase() === "DELETE" ? "#DC2626" : "#FCA5A5",
-                       cursor: (!acctBusy && confirmDelete.trim().toUpperCase() === "DELETE") ? "pointer" : "default" }}>
-              {acctBusy ? "Deleting…" : "Delete my account"}
-            </button>
-          </div>
+                <ul style={{ margin:"0 0 12px", paddingLeft:18, fontSize:12.5,
+                             color:C.black, lineHeight:1.7 }}>
+                  {(isDelete
+                    ? ["Your profile and login are erased",
+                       "Your listings are removed from the marketplace",
+                       "Your bookings, messages and reviews are deleted",
+                       "Anyone you have a confirmed booking with loses their record of it",
+                       "We cannot undo this or recover any of it for you"]
+                    : ["Your listings come down and stop appearing in search",
+                       "You cannot send or receive booking requests or messages",
+                       "Nothing is deleted — your data stays exactly as it is",
+                       "Logging back in reactivates everything"]
+                  ).map(line => <li key={line}>{line}</li>)}
+                </ul>
 
-          {acctErr && (
-            <p role="alert" style={{ margin:"8px 0 0", fontSize:11.5, fontWeight:600, color:"#B91C1C" }}>
-              {acctErr}
-            </p>
-          )}
-        </div>
+                {isDelete && (
+                  <p style={{ margin:"0 0 12px", padding:"9px 11px", borderRadius:9,
+                              background:"#FFFBEB", border:"1px solid #FDE68A",
+                              fontSize:12, color:"#92400E", lineHeight:1.55 }}>
+                    If you only want a break, close this and choose{" "}
+                    <strong>Deactivate</strong> instead — it is reversible.
+                  </p>
+                )}
+
+                <div style={{ display:"flex", gap:8, marginTop:4 }}>
+                  <button type="button" disabled={acctBusy}
+                    onClick={() => setConfirmAction(null)}
+                    style={{ flex:1, padding:"11px 0", borderRadius:10, fontSize:13, fontWeight:700,
+                             border:`1px solid ${C.border}`, background:"#fff", color:C.black,
+                             cursor: acctBusy ? "default" : "pointer" }}>
+                    {isDelete ? "Keep my account" : "Cancel"}
+                  </button>
+                  <button type="button" disabled={acctBusy}
+                    onClick={isDelete ? doDeleteAccount : doDeactivate}
+                    style={{ flex:1, padding:"11px 0", borderRadius:10, fontSize:13, fontWeight:800,
+                             border:"none", color:"#fff",
+                             background: isDelete ? "#DC2626" : C.black,
+                             opacity: acctBusy ? 0.7 : 1,
+                             cursor: acctBusy ? "default" : "pointer" }}>
+                    {acctBusy
+                      ? (isDelete ? "Deleting…" : "Deactivating…")
+                      : (isDelete ? "Yes, delete everything" : "Yes, deactivate")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Footer */}
         <div style={{ padding:"12px 18px 16px", borderTop:`1px solid ${C.border}`,
@@ -5670,7 +5794,22 @@ function AvailabilityCalendar({ vendorId }) {
 
 
 /* ─── NOTIFICATION BELL ───────────────────────────────────────────────────────── */
-function NotificationBell({ userId, onClick, open }) {
+/* Where a notification should take you when tapped. Clicking one used to only
+   mark it read, which left people hunting for the very thing they had just been
+   told about — worst of all for "X replied", where the reply is two taps and a
+   tab away.
+
+   Types come from the notifications table: message, inquiry, inquiry_reply and
+   conversation_closed are all conversation events; everything else (new_request,
+   request_update, request_sent, booking_cancelled, review) hangs off a booking. */
+function notifTarget(n) {
+  const t = String((n && n.type) || "");
+  if (t === "message" || t === "inquiry" || t === "inquiry_reply" ||
+      t === "conversation_closed") return "messages";
+  return "requests";
+}
+
+function NotificationBell({ userId, onClick, open, onOpenTarget }) {
   const [notifs, setNotifs] = useState([]);
 
   useEffect(() => {
@@ -5721,7 +5860,14 @@ function NotificationBell({ userId, onClick, open }) {
             </div>
           ) : notifs.map(n => (
             <div key={n.id}
-              onClick={() => { markNotifsRead(userId); setNotifs(ns => ns.map(x => ({...x,read:true,is_read:true}))); }}
+              role="button" tabIndex={0}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") e.currentTarget.click(); }}
+              onClick={() => {
+                markNotifsRead(userId);
+                setNotifs(ns => ns.map(x => ({...x,read:true,is_read:true})));
+                /* Take them to the thing the notification is about. */
+                if (onOpenTarget) onOpenTarget(notifTarget(n));
+              }}
               style={{ padding:"12px 16px", borderBottom:`1px solid ${C.border}`, cursor:"pointer",
                        background: (n.read || n.is_read) ? "#fff" : "#FFF7ED" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
@@ -10132,7 +10278,7 @@ const INFO_CONTENT = {
     ["What we share", "When you send a booking request, the vendor receives the event details you provided. Vendor listing information is public. We do not sell your personal information."],
     ["Verification documents", "Documents submitted during vendor verification are stored for review and are not shown publicly on listings."],
     ["Your choices", "You can edit your profile and listing information at any time."],
-    ["Deleting your account", "You can permanently delete your account and its data at any time from your account menu, using Delete permanently. You do not need to contact us. Deletion removes your profile, listings, bookings, messages and reviews, and cannot be undone. If you only want to pause, deactivate instead: your listings come down and bookings stop, but nothing is erased."],
+    ["Deleting your account", "You can permanently delete your account and its data at any time from your account menu, under Profile then Account settings. You do not need to contact us. Deletion removes your profile, listings, bookings, messages and reviews, and cannot be undone. If you only want to pause, deactivate instead — in the same place: your listings come down and bookings stop, but nothing is erased."],
     ["How long we keep things", "We keep your account data until you delete it. We may retain limited records where we are legally required to, such as transaction records for tax and accounting, and a record of your acceptance of our Terms."],
     ["Cookies and browser storage", "PLUG stores your sign-in session, your cart, your saved vendors and your display preferences in your browser. These are needed for the site to work and are not used for advertising or shared with advertisers. Clearing your browser storage signs you out and empties your cart."],
     ["Who processes data for us", "We use Supabase for our database and sign-in, Vercel for hosting, and Resend for sending email. Where online payment is enabled, Stripe processes payments and receives the information needed to do so. Each handles data on our behalf under its own terms. We do not sell your personal information, and we do not share it for cross-context behavioural advertising as those terms are defined under California law."],
@@ -10255,7 +10401,7 @@ function InfoPageModal({ page, onClose }) {
             </p>
             <p style={{ margin:"6px 0 0", fontSize:13.5, lineHeight:1.7, color:"#444" }}>
               To delete your account and everything on it, open your account
-              menu and use Delete permanently. You do not need to email us.
+              menu, then Profile and Account settings. You do not need to email us.
             </p>
           </div>
 
@@ -11138,6 +11284,9 @@ export default function PlugApp() {
   const [requestsSent,   setRequestsSent]   = useState(null);
   const [recentlySent,   setRecentlySent]   = useState([]);  // seed account requests instantly
   const [accountOpen,    setAccountOpen]    = useState(false);
+  /* Which tab the account panel opens on. A notification sets this before
+     opening the panel so the person lands on what they were told about. */
+  const [accountTab,     setAccountTab]     = useState("requests");
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [notifOpen,      setNotifOpen]      = useState(false);
   const [originBlocked,  setOriginBlocked]  = useState(false);
@@ -11632,6 +11781,7 @@ export default function PlugApp() {
           user={user}
           justSent={recentlySent}
           allCards={dbVendors}
+          initialTab={accountTab}
           onClose={() => { setAccountOpen(false); setNotifOpen(false); }}
           onLogout={handleLogout}
           onListingSaved={refreshVendors}
@@ -11698,7 +11848,10 @@ export default function PlugApp() {
             <>
               {user.type !== "guest" && (
                 <NotificationBell userId={user.id} open={notifOpen}
-                  onClick={() => { setNotifOpen(o=>!o); setAccountOpen(false); }} />
+                  onClick={() => { setNotifOpen(o=>!o); setAccountOpen(false); }}
+                  /* Close the bell and open the account panel on the tab that
+                     actually holds the thing they tapped. */
+                  onOpenTarget={(t) => { setAccountTab(t); setNotifOpen(false); setAccountOpen(true); }} />
               )}
               <button onClick={() => { setAccountOpen(o=>!o); setNotifOpen(false); }}
                 className="btn"
