@@ -5794,6 +5794,79 @@ function AvailabilityCalendar({ vendorId }) {
 
 
 /* ─── NOTIFICATION BELL ───────────────────────────────────────────────────────── */
+/* ─── PHOTO MANAGER ──────────────────────────────────────────────────────────
+   Vendors could add and remove photos but never reorder them — and the FIRST
+   photo is the cover everywhere: on the marketplace card, in search results and
+   at the top of the profile. So the cover was whichever photo happened to
+   upload first, which is rarely the best one.
+
+   Arrows and a "make cover" button rather than drag-and-drop. Dragging is
+   fiddly on a phone, which is where most vendors will be doing this, and doing
+   it properly needs either a library or a lot of pointer-event code. One tap to
+   promote a photo covers the common case; the arrows handle the rest.
+────────────────────────────────────────────────────────────────────────────── */
+function PhotoManager({ photos, onChange, size = 78 }) {
+  const list = Array.isArray(photos) ? photos : [];
+
+  const move = (from, to) => {
+    if (to < 0 || to >= list.length) return;
+    const next = list.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onChange(next);
+  };
+  const remove = (i) => onChange(list.filter((_, j) => j !== i));
+
+  if (!list.length) return null;
+
+  const ctrl = {
+    flex:1, border:"none", background:"rgba(0,0,0,0.62)", color:"#fff",
+    fontSize:11, lineHeight:1, padding:"3px 0", cursor:"pointer",
+  };
+
+  return (
+    <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:8 }}>
+      {list.map((url, i) => (
+        <div key={url + i}
+          style={{ position:"relative", width:size, height:size, borderRadius:9,
+                   overflow:"hidden", flexShrink:0,
+                   border: i === 0 ? `2px solid ${C.orange}` : `1px solid ${C.border}`,
+                   background:"#F3F4F6" }}>
+          <img src={url} alt={"Photo " + (i + 1)}
+               style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+
+          <button type="button" onClick={() => remove(i)} className="btn"
+            title="Remove this photo"
+            style={{ position:"absolute", top:2, right:2, width:19, height:19, borderRadius:99,
+                     border:"none", background:"rgba(0,0,0,0.68)", color:"#fff",
+                     fontSize:10, lineHeight:1, cursor:"pointer" }}>✕</button>
+
+          {i === 0 ? (
+            <span style={{ position:"absolute", bottom:0, left:0, right:0,
+                           background:C.orange, color:"#fff", fontSize:8, fontWeight:800,
+                           textAlign:"center", padding:"2px 0", letterSpacing:"0.04em" }}>
+              COVER
+            </span>
+          ) : (
+            <div style={{ position:"absolute", bottom:0, left:0, right:0, display:"flex" }}>
+              <button type="button" onClick={() => move(i, i - 1)} className="btn"
+                title="Move left" style={ctrl}>◀</button>
+              <button type="button" onClick={() => move(i, 0)} className="btn"
+                title="Make this the cover photo"
+                style={{ ...ctrl, background:"rgba(234,88,12,0.9)", fontSize:9, fontWeight:800 }}>
+                ★
+              </button>
+              <button type="button" onClick={() => move(i, i + 1)} className="btn"
+                title="Move right" style={ctrl}
+                disabled={i === list.length - 1}>▶</button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* Where a notification should take you when tapped. Clicking one used to only
    mark it read, which left people hunting for the very thing they had just been
    told about — worst of all for "X replied", where the reply is two taps and a
@@ -8670,12 +8743,20 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
       {/* Photo gallery */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8,
                     borderRadius:20, overflow:"hidden", height:320, marginBottom:28 }}>
-        <div style={{ gridColumn:"1 / 3", position:"relative", cursor:"pointer" }}
+        {/* The main image is the one people actually study before booking, so it
+            uses `contain`, not `cover`. With `cover` a portrait photo of a food
+            truck or a tall cake was cropped to a letterbox strip — the vendor
+            uploaded a good photo and customers saw the middle third of it.
+            The neutral backing makes the letterboxing look deliberate rather
+            than broken. Thumbnails below stay `cover`: they are previews, and
+            cropping reads better at that size. */}
+        <div style={{ gridColumn:"1 / 3", position:"relative", cursor:"pointer",
+                      background:"#F3F4F6" }}
           onClick={() => setActivePhoto(0)}>
           {!imgLoaded && <div className="skeleton" style={{ position:"absolute", inset:0 }} />}
           <img src={photos[activePhoto]} alt={disp.name}
             onLoad={() => setImgLoaded(true)}
-            style={{ width:"100%", height:"100%", objectFit:"cover",
+            style={{ width:"100%", height:"100%", objectFit:"contain",
                      opacity: imgLoaded ? 1 : 0, transition:"opacity 0.3s ease" }} />
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -9829,17 +9910,16 @@ function ServicesManager({ vendorId }) {
           </div>
 
           {/* Photos for this specific service */}
-          <label style={L}>Photos for this service</label>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:6 }}>
-            {editing.photos.map((p, i) => (
-              <div key={i} style={{ position:"relative" }}>
-                <img src={p} alt="" style={{ width:56, height:56, borderRadius:8, objectFit:"cover" }} />
-                <button onClick={() => setEditing(e => ({ ...e, photos: e.photos.filter((_, j) => j !== i) }))}
-                  className="btn" style={{ position:"absolute", top:-6, right:-6, width:18, height:18,
-                    borderRadius:99, border:"none", background:"#EF4444", color:"#fff", fontSize:10, lineHeight:1 }}>✕</button>
-              </div>
-            ))}
-          </div>
+          <label style={L}>
+            Photos for this service{" "}
+            <span style={{ fontWeight:400, color:C.midGray }}>
+              — the first one is the cover customers see
+            </span>
+          </label>
+          <PhotoManager
+            photos={editing.photos}
+            onChange={(next) => setEditing(e => ({ ...e, photos: next }))}
+            size={72} />
           <input type="file" accept="image/*" multiple onChange={addPhotos}
             style={{ fontSize:11, color:C.midGray }} />
           {uploading && <p style={{ fontSize:11, color:C.orange, margin:"4px 0 0" }}>Uploading…</p>}
@@ -10016,7 +10096,8 @@ function VendorListingEditor({ user, onClose, onSaved }) {
     setUp(false);
   }
 
-  function removePhoto(i) { setF(p => ({ ...p, photos: p.photos.filter((_, j) => j !== i) })); }
+  /* Removal (and reordering) now live in PhotoManager, which owns the whole
+     list and hands back the new one. */
 
   async function save() {
     setErr(""); setOk("");
@@ -10175,20 +10256,10 @@ function VendorListingEditor({ user, onClose, onSaved }) {
 
             {/* Photos */}
             <label style={L}>Photos <span style={{fontWeight:400}}>({f.photos.length}/8 — first is the cover)</span></label>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:8 }}>
-              {f.photos.map((url, i) => (
-                <div key={i} style={{ position:"relative", width:78, height:78, borderRadius:9, overflow:"hidden",
-                                      border:`1px solid ${C.border}` }}>
-                  <img src={url} alt={"Photo " + (i+1)}
-                       style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                  <button onClick={()=>removePhoto(i)} className="btn"
-                    style={{ position:"absolute", top:2, right:2, width:20, height:20, borderRadius:99,
-                             border:"none", background:"rgba(0,0,0,0.65)", color:"#fff", fontSize:11, lineHeight:1 }}>✕</button>
-                  {i===0 && <span style={{ position:"absolute", bottom:0, left:0, right:0, background:"rgba(0,0,0,0.6)",
-                                           color:"#fff", fontSize:8, textAlign:"center", padding:"1px 0" }}>COVER</span>}
-                </div>
-              ))}
-            </div>
+            <PhotoManager
+              photos={f.photos}
+              onChange={(next) => set("photos", next)}
+              size={78} />
             <input type="file" accept="image/*" multiple onChange={addPhotos} disabled={uploading}
               style={{ fontSize:12 }} />
             {uploading && <p style={{ fontSize:11, color:C.midGray, margin:"6px 0 0" }}>Uploading…</p>}
