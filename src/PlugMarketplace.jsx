@@ -1909,6 +1909,12 @@ async function saveService(vendorId, svc) {
   const row = {
     vendor_id:    vendorId,
     category:     svc.category || "food",
+    /* Up to three, within this listing's category. The database trigger drops
+       blanks, de-duplicates, caps at 3 and mirrors the first entry back into
+       `subcategory`, so we deliberately do not repeat that logic here. */
+    subcategories: Array.isArray(svc.subcategories)
+                     ? svc.subcategories.filter(Boolean).slice(0, 3)
+                     : (svc.subcategory ? [svc.subcategory] : []),
     subcategory:  svc.subcategory || null,
     name:         svc.name || null,
     service_type: svc.service_type || null,
@@ -2088,7 +2094,13 @@ function dbServiceToCard(s, v) {
     serviceName: label,
     serviceType: kindLabel,
     cat:         s.category || "food",
-    sub:         s.subcategory || null,
+    sub:         s.subcategory || null,          // primary, used for the label
+    /* Every subcategory this listing claims, so a food truck that also does
+       catering is found under both. Falls back to the single value for
+       listings created before this existed. */
+    subs:        Array.isArray(s.subcategories) && s.subcategories.length
+                   ? s.subcategories
+                   : (s.subcategory ? [s.subcategory] : []),
     offsite:     s.offsite === true,
     addons:      parseAddons(s.addons),
     availDays:   s.avail_days || null,
@@ -9245,7 +9257,7 @@ function ServicesManager({ vendorId }) {
   const [busy,     setBusy]     = useState(false);
   const [uploading,setUploading]= useState(false);
 
-  const blank = { category:"food", subcategory:"", name:"", service_type:"", description:"",
+  const blank = { category:"food", subcategory:"", subcategories:[], name:"", service_type:"", description:"",
                   price_value:"", capacity:"", photos:[], packages:[], active:true, offsite:false, travel_miles:"", service_areas:"", addons:[], avail_days:[], avail_blocks:[], max_per_day:1, gap_hours:2, simultaneous:false };
 
   async function load() {
@@ -9265,6 +9277,10 @@ function ServicesManager({ vendorId }) {
       photos: parsePhotos(s.photos),
       packages: parsePackages(s.packages),
       subcategory: s.subcategory || "",
+      /* Older listings predate the array and only have the single value. */
+      subcategories: Array.isArray(s.subcategories) && s.subcategories.length
+                       ? s.subcategories
+                       : (s.subcategory ? [s.subcategory] : []),
       offsite: s.offsite === true,
       travel_miles: s.travel_miles != null ? String(s.travel_miles) : "",
       service_areas: s.service_areas || "",
@@ -9284,7 +9300,10 @@ function ServicesManager({ vendorId }) {
   function setField(k, v) {
     setEditing(e => {
       const next = { ...e, [k]: v };
-      if (k === "category") next.subcategory = "";   // subs differ per category
+      /* Subs differ per category, so changing the category clears both the
+         array and the mirrored primary — otherwise a food truck that switches
+         to Rentals keeps claiming "catering". */
+      if (k === "category") { next.subcategory = ""; next.subcategories = []; }
       return next;
     });
     setErr("");
@@ -9422,17 +9441,65 @@ function ServicesManager({ vendorId }) {
             ))}
           </select>
 
-          {(CAT_SUBS[editing.category] || []).length > 0 && (
-            <>
-              <label style={L}>Subcategory</label>
-              <select style={F} value={editing.subcategory} onChange={e => setField("subcategory", e.target.value)}>
-                <option value="">Choose one (optional)</option>
-                {(CAT_SUBS[editing.category] || []).map(s => (
-                  <option key={s.id} value={s.id}>{s.e} {s.l}</option>
-                ))}
-              </select>
-            </>
-          )}
+          {(CAT_SUBS[editing.category] || []).length > 0 && (() => {
+            /* A food truck is often also catering, and sometimes a mobile bar.
+               One subcategory forced vendors to pick the single best lie about
+               their business, and customers browsing "Catering" never saw them.
+
+               Three is the cap. Without one, the rational move for every vendor
+               is to tick everything, and then these filters stop meaning
+               anything for the customer. */
+            const MAX = 3;
+            const picked = Array.isArray(editing.subcategories) ? editing.subcategories : [];
+            const toggle = (id) => {
+              const has = picked.includes(id);
+              if (!has && picked.length >= MAX) return;   // at the cap, ignore
+              const next = has ? picked.filter(x => x !== id) : [...picked, id];
+              setEditing(e => ({ ...e, subcategories: next, subcategory: next[0] || "" }));
+              setErr("");
+            };
+            return (
+              <>
+                <label style={L}>
+                  What this service covers{" "}
+                  <span style={{ fontWeight:500, color:C.midGray }}>
+                    — pick up to {MAX} ({picked.length}/{MAX})
+                  </span>
+                </label>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginBottom:4 }}>
+                  {(CAT_SUBS[editing.category] || []).map(s => {
+                    const on   = picked.includes(s.id);
+                    const full = !on && picked.length >= MAX;
+                    return (
+                      <button key={s.id} type="button" onClick={() => toggle(s.id)}
+                        disabled={full}
+                        title={full ? `Remove one first — ${MAX} is the maximum` : s.d || s.l}
+                        className="btn"
+                        style={{ padding:"7px 12px", borderRadius:99, fontSize:12, fontWeight:700,
+                                 cursor: full ? "not-allowed" : "pointer",
+                                 border:`1.5px solid ${on ? C.orange : C.border}`,
+                                 background: on ? C.orangeSoft : "#fff",
+                                 color: on ? C.orange : (full ? C.lightGray : C.midGray),
+                                 opacity: full ? 0.55 : 1 }}>
+                        {on ? "✓ " : ""}{s.e} {s.l}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p style={{ margin:"0 0 4px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
+                  {picked.length === 0
+                    ? "Optional, but listings that pick at least one show up in far more searches."
+                    : picked.length >= MAX
+                      ? `That's the maximum. The first one, ${
+                          ((CAT_SUBS[editing.category]||[]).find(x=>x.id===picked[0])||{}).l || picked[0]
+                        }, is what customers see on your card.`
+                      : `Customers browsing any of these will find this listing. The first one, ${
+                          ((CAT_SUBS[editing.category]||[]).find(x=>x.id===picked[0])||{}).l || picked[0]
+                        }, shows on your card.`}
+                </p>
+              </>
+            );
+          })()}
 
           <label style={L}>Describe this service *</label>
           <textarea value={editing.description} onChange={e => setField("description", e.target.value)}
@@ -11463,16 +11530,23 @@ export default function PlugApp() {
         const vc = String(v.cat || "").toLowerCase();
         if (vc !== activeCat.toLowerCase()) return false;
       }
-      /* Live listings without a subcategory still show under their category. */
-      if (activeSub && v.sub !== activeSub && !(v.isLive && !v.sub)) return false;
+      /* A listing can claim up to three subcategories, so match against all of
+         them — a food truck that also does catering belongs in both. Sample
+         catalog entries and older listings only have the single `sub`.
+         Live listings that picked none still show under their category. */
+      if (activeSub) {
+        const vSubs = (v.subs && v.subs.length) ? v.subs : (v.sub ? [v.sub] : []);
+        if (!vSubs.includes(activeSub) && !(v.isLive && vSubs.length === 0)) return false;
+      }
       /* Build My Event: show a vendor for this occasion when EITHER their
          service subcategory is one the package suggests, OR they explicitly
          tagged this event type, OR they're a live listing that hasn't picked a
          subcategory yet (so real vendors — venues especially — aren't hidden). */
       if (activePackage && activePackage.subs.length > 0) {
-        const subMatch  = v.sub && activePackage.subs.includes(v.sub);
+        const vSubs     = (v.subs && v.subs.length) ? v.subs : (v.sub ? [v.sub] : []);
+        const subMatch  = vSubs.some(x => activePackage.subs.includes(x));
         const tagMatch  = parseEventTypes(v.eventTypes).includes(activePackage.id);
-        const liveNoSub = v.isLive && !v.sub;
+        const liveNoSub = v.isLive && vSubs.length === 0;
         if (!(subMatch || tagMatch || liveNoSub)) return false;
       }
       if (search && !`${v.name} ${v.type} ${v.blurb} ${(v.tags||[]).join(" ")}`.toLowerCase().includes(search.toLowerCase())) return false;
