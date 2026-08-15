@@ -2307,6 +2307,7 @@ async function saveRequest(req) {
       eventType: req.eventType, eventDate: req.eventDate,
       venueType: req.venueType, streetAddress: req.streetAddress,
       addressLine2: req.addressLine2, city: req.city, state: req.state,
+      addressVerified: req.addressVerified === true,
       zip: req.zip, startTime: req.startTime, endTime: req.endTime,
       accessInstructions: req.accessInstructions,
       createdAt: Date.now(),
@@ -2376,6 +2377,9 @@ async function saveRequest(req) {
     state: req.state || null, zip_code: req.zip || null,
     start_time: req.startTime || null, end_time: req.endTime || null,
     access_instructions: req.accessInstructions || null,
+    /* Strict === true: anything ambiguous is recorded as unverified, because
+       wrongly telling a vendor an address is confirmed is the costly error. */
+    address_verified: req.addressVerified === true,
     message: req.message || null, status: "pending",
     market_id: req.marketId || "houston-tx",
     /* Only sent when the listing came from vendor_services — keeps inserts
@@ -2437,6 +2441,7 @@ async function getVendorRequests(vendorId) {
     venueType: r.venue_type, streetAddress: r.street_address,
     addressLine2: r.address_line2, city: r.city, state: r.state,
     zip: r.zip_code, startTime: r.start_time, endTime: r.end_time,
+    addressVerified: r.address_verified === true,
     accessInstructions: r.access_instructions,
     serviceId: r.service_id, serviceName: r.service_name,
     packageName: r.package_name, packagePrice: r.package_price,
@@ -2486,6 +2491,7 @@ async function getUserRequests(userId) {
     venueType: r.venue_type, streetAddress: r.street_address,
     addressLine2: r.address_line2, city: r.city, state: r.state,
     zip: r.zip_code, startTime: r.start_time, endTime: r.end_time,
+    addressVerified: r.address_verified === true,
     accessInstructions: r.access_instructions,
     serviceId: r.service_id, serviceName: r.service_name,
     packageName: r.package_name, packagePrice: r.package_price,
@@ -4750,6 +4756,17 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
                     {!hasAddr && !req.venue && (
                       <p style={{ margin:0, fontSize:12, color:C.midGray }}>No location provided yet.</p>
                     )}
+                    {/* A hand-typed address has not been checked against any
+                        address database. The vendor is the one who has to drive
+                        there, so they are the one who needs to know. */}
+                    {user.type === "vendor" && hasAddr && !req.addressVerified && (
+                      <p style={{ margin:"7px 0 0", padding:"6px 9px", borderRadius:8,
+                                  background:"#FEF3C7", border:"1px solid #FCD34D",
+                                  fontSize:11.5, color:"#92400E", lineHeight:1.45 }}>
+                        ⚠ Entered by hand — not confirmed against an address database.
+                        Worth checking with the customer before you travel.
+                      </p>
+                    )}
                     {req.accessInstructions && (
                       <div style={{ marginTop:8, paddingTop:8, borderTop:"1px dashed #FCD9B6" }}>
                         <p style={{ margin:"0 0 2px", fontSize:10, fontWeight:700, color:C.midGray,
@@ -5880,9 +5897,17 @@ function TimeGrid({ value, onChange, after, allowTime }) {
    TO ENABLE GOOGLE:
      1. In Google Cloud Console, create an API key with "Places API" and
         "Maps JavaScript API" enabled, and billing turned on.
-     2. Restrict the key to your site's domain (HTTP referrers).
-     3. Paste it into GOOGLE_MAPS_KEY below. */
-const GOOGLE_MAPS_KEY = ""; // ← paste your Google Maps API key here
+     2. Restrict the key to your site's domain (HTTP referrers). This is the
+        important step: a browser key is visible in the bundle no matter where
+        you put it, so the referrer restriction is the ONLY thing stopping a
+        stranger spending your quota.
+     3. Set REACT_APP_GOOGLE_MAPS_KEY in Vercel (Settings → Environment
+        Variables) and redeploy. Do not hardcode it here.
+
+   Cost: Autocomplete keystrokes are free when the session ends in a Place
+   Details call, which pick() below always does, and it issues a fresh session
+   token afterwards. Abandoned sessions are what get billed per request. */
+const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_KEY || "";
 
 /* Load the Google Maps JS SDK (Places library) once. Resolves with window.google. */
 let _gmapsPromise = null;
@@ -5960,7 +5985,11 @@ async function fetchOSMSuggestions(query) {
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) return { list: [], blocked: false };
     const data = await res.json();
-    const list = (Array.isArray(data) ? data : []).map(parseGeoResult).filter(x => x.full).map(x => ({ ...x, kind: "osm" }));
+    /* precise means the match carries a real house number. Without it this is a
+       street or an area, not an address, and the person must not be allowed to
+       mistake it for one. */
+    const list = (Array.isArray(data) ? data : []).map(parseGeoResult).filter(x => x.full)
+      .map(x => ({ ...x, kind: "osm", precise: /^\d/.test(x.street || "") }));
     return { list, blocked: false };
   } catch (e) {
     console.warn("[PLUG] address lookup blocked or offline:", e && e.message);
@@ -6035,35 +6064,37 @@ function AddressAutocomplete({ onSelect, placeholder }) {
     }, 350);
   }
 
-  /* Free geocoders often return a STREET-level match ("Wilkes Street") even
-     when the person typed a house number ("824 wilkes"). The number is right
-     there in what they typed, so carry it across rather than losing it. */
-  function withTypedHouseNumber(result, typed) {
-    const num = (String(typed || "").trim().match(/^(\d+[A-Za-z]?)\b/) || [])[1];
-    if (!num) return result;
-    const street = String(result.street || "");
-    if (/^\d/.test(street)) return result;              // already has a number
-    const merged = (street ? `${num} ${street}` : num).trim();
-    const full = result.full && !/^\d/.test(result.full) ? `${num} ${result.full}` : result.full;
-    return { ...result, street: merged, full };
-  }
+  /* There used to be a withTypedHouseNumber() helper here. When a geocoder
+     returned only a STREET ("Wilkes Street") it grafted on the house number the
+     person had typed, to avoid "losing" it.
+
+     That was the bug behind wrong addresses. Type "824 wil", let the geocoder
+     guess Wilcrest Drive, and it produced "824 Wilcrest Drive" — a complete,
+     confident address nobody had entered and which may not exist. A vendor
+     driving to it would arrive at the wrong house.
+
+     It is deleted on purpose. We now either return exactly what the address
+     database gave us, or we mark the result unverified. We never invent the
+     missing part. Do not reinstate this. */
 
   function pick(r) {
     setOpen(false); setResults([]);
-    const merged = (r.kind === "google") ? r : withTypedHouseNumber(r, q);
-    setQ(merged.full || r.full);
+    setQ(r.full);
     if (r.kind === "google" && placesSvc.current) {
       placesSvc.current.getDetails(
         { placeId: r.place_id, fields: ["address_components", "formatted_address", "geometry"], sessionToken: sessionTok.current },
         (place, status) => {
-          if (status === "OK" && place) onSelect(parseGooglePlace(place));
-          else onSelect({ full: r.full });
+          /* verified only on a real Place Details hit — this is the single
+             place in the app allowed to claim an address is confirmed. */
+          if (status === "OK" && place) onSelect({ ...parseGooglePlace(place), verified: true });
+          else onSelect({ full: r.full, verified: false });
           // new token after a completed session (billing best practice)
           if (window.google?.maps?.places) sessionTok.current = new window.google.maps.places.AutocompleteSessionToken();
         }
       );
     } else {
-      onSelect(merged);
+      /* Free-geocoder match: usable, but never claimed as verified. */
+      onSelect({ ...r, verified: false });
     }
   }
 
@@ -6097,6 +6128,13 @@ function AddressAutocomplete({ onSelect, placeholder }) {
                        border:"none", borderTop: i ? `1px solid ${C.border}` : "none",
                        background:"#fff", fontSize:12, color:C.black, cursor:"pointer" }}>
               📍 {r.full}
+              {/* A match with no house number is a street, not an address. Say so
+                  rather than letting it be picked as though it were exact. */}
+              {r.kind !== "google" && r.precise === false && (
+                <span style={{ display:"block", marginTop:2, fontSize:10.5, color:"#B45309" }}>
+                  Street only — no house number. Check this before you use it.
+                </span>
+              )}
             </button>
           ))}
           {GOOGLE_MAPS_KEY && gReady && (
@@ -6704,6 +6742,17 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
      it's shown back as a summary instead of a row of editable boxes. */
   const [addrConfirmed, setAddrConfirmed] = useState(!!(initialDetails?.city && initialDetails?.street));
   const [manualAddr,    setManualAddr]    = useState(false);
+  /* Verification is DERIVED, not tracked. We snapshot the exact address the
+     address database returned; the booking counts as verified only while the
+     four fields still match that snapshot character for character.
+
+     Doing it this way means every edit path invalidates it automatically — the
+     manual boxes, the editable confirmed card, a paste, a future field we
+     haven't written yet. Setting a boolean in each onChange would work until
+     somebody adds a fifth input and forgets. */
+  const [verifiedAddr, setVerifiedAddr] = useState(null);
+  const addrVerified = !!verifiedAddr &&
+    verifiedAddr === [street.trim(), city.trim(), stateAbbr.trim(), zip.trim()].join("|");
   const [startTime,  setStartTime]  = useState(initialDetails?.startTime || "");
   const [endTime,    setEndTime]    = useState(initialDetails?.endTime || "");
   const [access,     setAccess]     = useState(initialDetails?.access || "");
@@ -6756,6 +6805,11 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
       venue: eventVenue, venueType, streetAddress: street, addressLine2: addr2,
       city, state: stateAbbr, zip,
     };
+    /* Booking a venue means the address is the venue's OWN registered address,
+       supplied by the venue about itself. That is a stronger signal than a
+       geocoder guess, so it counts as confirmed. Everything else is confirmed
+       only while it still matches a Place Details result. */
+    const locVerified = placeLoc ? true : addrVerified;
     const requests = cart.map(vendor => ({
       id:         genRequestId(),
       userId:     user.id,
@@ -6781,6 +6835,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
       city:       loc.city,
       state:      loc.state,
       zip:        loc.zip,
+      addressVerified: locVerified,
       startTime,
       endTime,
       accessInstructions: access,
@@ -7000,10 +7055,20 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                       <AddressAutocomplete
                         placeholder="🔍 Start typing the event address…"
                         onSelect={(a) => {
-                          if (a.street) setStreet(a.street);
-                          if (a.city)   setCity(a.city);
-                          if (a.state)  setStateAbbr(toStateAbbr(a.state));
-                          if (a.zip)    setZip(a.zip);
+                          const st = (a.street || "").trim();
+                          const ct = (a.city   || "").trim();
+                          const sa = (a.state ? toStateAbbr(a.state) : "").trim();
+                          const zp = (a.zip    || "").trim();
+                          if (st) setStreet(st);
+                          if (ct) setCity(ct);
+                          if (sa) setStateAbbr(sa);
+                          if (zp) setZip(zp);
+                          /* Only vouch for an address that came back COMPLETE.
+                             A "verified" hit missing its zip or house number is
+                             not something to promise a vendor. */
+                          setVerifiedAddr(
+                            a.verified && st && ct && sa && zp ? [st, ct, sa, zp].join("|") : null
+                          );
                           setAddrConfirmed(true);
                           setManualAddr(false);
                           if (err) setErr("");
