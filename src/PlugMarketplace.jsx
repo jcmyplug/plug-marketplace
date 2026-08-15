@@ -1863,7 +1863,11 @@ async function getApprovedVendors() {
      yields nothing (e.g. vendor-services not set up, or the embedded profile
      isn't readable for this visitor). */
   const { data, error } = await sb.from("vendor_services")
-    .select("*, vendor_profiles!inner(*)")
+    /* vendor_public, not vendor_profiles: the base table carries the licence
+       number, EIN, managing members and business phone, and the anon key that
+       would read them ships in this bundle. The `vendor_profiles:` alias keeps
+       the response key unchanged so nothing downstream has to know. */
+    .select("*, vendor_profiles:vendor_public!inner(*)")
     .order("created_at", { ascending: false })
     .get();
   if (!error && Array.isArray(data) && data.length) {
@@ -1876,7 +1880,9 @@ async function getApprovedVendors() {
   } else if (error) {
     console.warn("[PLUG] vendor_services unavailable — using legacy listings. Run vendor-services-setup.sql.", error);
   }
-  const { data: legacy, error: legErr } = await sb.from("vendor_profiles")
+  /* vendor_public here too. The view already contains only approved vendors,
+     so the .eq below is now redundant, but harmless and left for clarity. */
+  const { data: legacy, error: legErr } = await sb.from("vendor_public")
     .select("*")
     .eq("verification_status", "approved")
     .order("created_at", { ascending: false })
@@ -2022,7 +2028,9 @@ async function replyToReviewDB(reviewId, subjectId, reply) {
    page so it shows everything the vendor entered, not just the clicked card. */
 async function getVendorProfileById(vendorId) {
   if (IS_PREVIEW || !vendorId) return null;
-  const { data, error } = await sb.from("vendor_profiles").select("*").eq("id", vendorId).single().get();
+  /* vendor_public: this is the customer-facing profile page, so it must not be
+     able to serve the vendor's licence number, EIN, members or phone. */
+  const { data, error } = await sb.from("vendor_public").select("*").eq("id", vendorId).single().get();
   if (error) console.warn("[PLUG] getVendorProfileById failed for", vendorId, "→", error, "(vendor_profiles may need a public read policy — run vendor-public-read.sql)");
   else if (!data) console.warn("[PLUG] getVendorProfileById: no row for", vendorId);
   return data || null;
