@@ -8741,35 +8741,50 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
       </div>
 
       {/* Photo gallery */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8,
-                    borderRadius:20, overflow:"hidden", height:320, marginBottom:28 }}>
-        {/* The main image is the one people actually study before booking, so it
-            uses `contain`, not `cover`. With `cover` a portrait photo of a food
-            truck or a tall cake was cropped to a letterbox strip — the vendor
-            uploaded a good photo and customers saw the middle third of it.
-            The neutral backing makes the letterboxing look deliberate rather
-            than broken. Thumbnails below stay `cover`: they are previews, and
-            cropping reads better at that size. */}
+      {/* Every image here sits absolutely inside a box of a known size. Left in
+          normal flow, `img { height: 100% }` inside a wrapper whose own height
+          is auto is a circular definition, so the browser fell back to the
+          intrinsic height of the photo - 925px for a portrait shot. The
+          implicit grid row grew to match while the container stayed a fixed
+          320px with overflow hidden, so customers saw the top third of every
+          photo and nothing below it. Pinning the row and taking the images out
+          of flow makes each box exactly the size it claims to be.
+
+          The main image then uses `contain`, so nothing is cropped, over a
+          blurred copy of itself: a tall photo is letterboxed either side, and
+          the blur makes that read as framing rather than as a grey slab.
+          Thumbnails stay `cover` - they are previews, and cropping reads better
+          at that size. */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gridTemplateRows:"320px",
+                    gap:8, borderRadius:20, overflow:"hidden", height:320, marginBottom:28 }}>
         <div style={{ gridColumn:"1 / 3", position:"relative", cursor:"pointer",
-                      background:"#F3F4F6" }}
+                      overflow:"hidden", background:"#F3F4F6" }}
           onClick={() => setActivePhoto(0)}>
           {!imgLoaded && <div className="skeleton" style={{ position:"absolute", inset:0 }} />}
+          <div aria-hidden="true"
+            style={{ position:"absolute", inset:0,
+                     backgroundImage:`url("${photos[activePhoto]}")`,
+                     backgroundSize:"cover", backgroundPosition:"center",
+                     filter:"blur(24px) brightness(0.82)", transform:"scale(1.2)",
+                     opacity: imgLoaded ? 1 : 0, transition:"opacity 0.3s ease" }} />
           <img src={photos[activePhoto]} alt={disp.name}
             onLoad={() => setImgLoaded(true)}
-            style={{ width:"100%", height:"100%", objectFit:"contain",
+            style={{ position:"absolute", inset:0, width:"100%", height:"100%",
+                     objectFit:"contain",
                      opacity: imgLoaded ? 1 : 0, transition:"opacity 0.3s ease" }} />
         </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:8, minHeight:0 }}>
           {photos.slice(1, 3).map((ph, i) => (
             <div key={i} onClick={() => setActivePhoto(i+1)}
-              style={{ flex:1, position:"relative", cursor:"pointer", overflow:"hidden",
+              style={{ flex:1, minHeight:0, position:"relative", cursor:"pointer", overflow:"hidden",
                        borderRadius: i === 0 ? "0 20px 0 0" : "0 0 20px 0" }}>
               <img src={ph} alt={`${disp.name} ${i+2}`}
-                style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+                style={{ position:"absolute", inset:0, width:"100%", height:"100%",
+                         objectFit:"cover" }} />
             </div>
           ))}
           {photos.length < 2 && (
-            <div style={{ flex:1, background:"#F3F4F6", display:"flex", alignItems:"center",
+            <div style={{ flex:1, minHeight:0, background:"#F3F4F6", display:"flex", alignItems:"center",
                           justifyContent:"center", borderRadius:"0 20px 20px 0" }}>
               <span style={{ fontSize:28 }}>📷</span>
             </div>
