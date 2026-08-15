@@ -5997,6 +5997,38 @@ async function fetchOSMSuggestions(query) {
   }
 }
 
+/* Confirm a typed address against the US Census geocoder — free forever, no API
+   key, no account, no billing card. Proxied through our own /api/verify-address
+   because the Census API sends no CORS headers, so a direct browser call fails.
+
+   This is what replaced the habit of inventing the house number. Rather than
+   grafting the typed number onto a street the geocoder guessed, we ask an
+   authoritative source whether that number actually exists on that street.
+   It confirms "824 Wilkes St" and refuses "99999 Wilkes St".
+
+   Returns null on every failure path — a slow or unavailable lookup must never
+   stop somebody booking. */
+async function verifyTypedAddress(query) {
+  if (!query || !/[0-9]/.test(query)) return null;   // no number, nothing to confirm
+  try {
+    const res = await fetch("/api/verify-address", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q: query }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.match) return null;
+    const m = data.match;
+    return {
+      kind: "census", precise: true,
+      street: m.street, city: m.city, state: m.state, zip: m.zip,
+      full: [m.street, m.city, [m.state, m.zip].filter(Boolean).join(" ")]
+              .filter(Boolean).join(", "),
+    };
+  } catch { return null; }
+}
+
 function AddressAutocomplete({ onSelect, placeholder }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
@@ -6060,7 +6092,19 @@ function AddressAutocomplete({ onSelect, placeholder }) {
     setLoading(true);
     timer.current = setTimeout(async () => {
       if (GOOGLE_MAPS_KEY && gReady && acService.current) { runGoogle(v); }
-      else { const r = await fetchOSMSuggestions(v); setResults(r.list); setLoading(false); setBlocked(r.blocked); setShowNoMatch(r.list.length === 0); }
+      else {
+        /* Run both at once. Photon is good at streets and cities; Census is the
+           only one of the two that knows house numbers. Whichever answers, the
+           customer waits for one round trip, not two. */
+        const [r, confirmed] = await Promise.all([
+          fetchOSMSuggestions(v),
+          verifyTypedAddress(v),
+        ]);
+        /* A confirmed address outranks every guess, so it goes first. */
+        const list = confirmed ? [confirmed, ...r.list] : r.list;
+        setResults(list); setLoading(false); setBlocked(r.blocked);
+        setShowNoMatch(list.length === 0);
+      }
     }, 350);
   }
 
@@ -6092,6 +6136,10 @@ function AddressAutocomplete({ onSelect, placeholder }) {
           if (window.google?.maps?.places) sessionTok.current = new window.google.maps.places.AutocompleteSessionToken();
         }
       );
+    } else if (r.kind === "census") {
+      /* Confirmed against the Census address ranges, house number included.
+         The only non-Google path allowed to claim an address is verified. */
+      onSelect({ ...r, verified: true });
     } else {
       /* Free-geocoder match: usable, but never claimed as verified. */
       onSelect({ ...r, verified: false });
@@ -6127,10 +6175,17 @@ function AddressAutocomplete({ onSelect, placeholder }) {
               style={{ display:"block", width:"100%", textAlign:"left", padding:"9px 12px",
                        border:"none", borderTop: i ? `1px solid ${C.border}` : "none",
                        background:"#fff", fontSize:12, color:C.black, cursor:"pointer" }}>
-              📍 {r.full}
+              {r.kind === "census" ? "✓ " : "📍 "}{r.full}
+              {/* Confirmed against real US address ranges, house number and all. */}
+              {r.kind === "census" && (
+                <span style={{ display:"block", marginTop:2, fontSize:10.5,
+                               color:"#166534", fontWeight:700 }}>
+                  Confirmed address — house number and ZIP checked
+                </span>
+              )}
               {/* A match with no house number is a street, not an address. Say so
                   rather than letting it be picked as though it were exact. */}
-              {r.kind !== "google" && r.precise === false && (
+              {r.kind !== "google" && r.kind !== "census" && r.precise === false && (
                 <span style={{ display:"block", marginTop:2, fontSize:10.5, color:"#B45309" }}>
                   Street only — no house number. Check this before you use it.
                 </span>
