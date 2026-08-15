@@ -7194,6 +7194,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
   const [eventType,  setEventType]  = useState(initialDetails?.eventType || "");
   const [otherEventNote, setOtherEventNote] = useState(initialDetails?.otherEventNote || "");
   const [eventDate,  setEventDate]  = useState(initialDetails?.eventDate || "");
+  const [endDate,    setEndDate]    = useState(initialDetails?.endDate || "");
   const [eventGuests,setEventGuests]= useState(initialDetails?.guests || "");
   const [eventVenue, setEventVenue] = useState(initialDetails?.venue || "");   // venue NAME (e.g. "The Grand Ballroom")
   const [message,    setMessage]    = useState(initialDetails?.message || "");
@@ -7231,14 +7232,26 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
   useEffect(() => {
     if (!onDetailsChange) return;
     onDetailsChange({
-      eventType, otherEventNote, eventDate, guests: eventGuests, venue: eventVenue, message,
+      eventType, otherEventNote, eventDate, endDate, guests: eventGuests, venue: eventVenue, message,
       venueType, street, addr2, city, state: stateAbbr, zip, startTime, endTime, access,
     });
-  }, [eventType, otherEventNote, eventDate, eventGuests, eventVenue, message, venueType, street, addr2, city, stateAbbr, zip, startTime, endTime, access]);
+  }, [eventType, otherEventNote, eventDate, endDate, eventGuests, eventVenue, message, venueType, street, addr2, city, stateAbbr, zip, startTime, endTime, access]);
 
   /* Grey out dates/times none of the cart's vendors can work. */
   const allowDate = makeDateAllower(cart, availByVendor);
-  const allowTime = makeTimeAllower(cart);
+  const vendorHoursAllow = makeTimeAllower(cart);
+  /* Two separate reasons a time can be unselectable, combined into the one
+     predicate TimeGrid understands: the vendor does not work then, or the
+     moment has simply gone. The second only bites when the event is today —
+     9:00 AM is a fine choice for tomorrow and a dead one at 4pm today. */
+  const startIsToday = eventDate === isoDate(new Date());
+  const allowTime = (t) => {
+    if (vendorHoursAllow && !vendorHoursAllow(t)) return false;
+    if (startIsToday && `${eventDate}T${t}` <= localStamp()) return false;
+    return true;
+  };
+  /* Empty end date means "finishes the same day". */
+  const endSameDay = !endDate || endDate === eventDate;
 
   const total = cart.reduce((a,v) => a + (v.pv||0), 0);
 
@@ -7262,6 +7275,11 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
   async function handleSubmit() {
     if (!user) { setAuthModal(true); return; }
     if (!eventDate) { setErr("Event date is required — please choose your event date."); return; }
+    /* Belt and braces: the calendar already hides past days and the time
+       grid strikes out past hours, but a stale form left open across
+       midnight would otherwise submit yesterday. */
+    const gone = pastEventReason(eventDate, startTime);
+    if (gone) { setErr(`Please pick a new date and time — ${gone}.`); return; }
     if (!placeVendor && !city.trim()) { setErr("Please add at least the event city so the vendor knows where to go."); return; }
     const busy = vendorsUnavailableOn(eventDate, startTime);
     if (busy.length) { setErr(conflictMessage(busy)); return; }
@@ -7293,6 +7311,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                     ? `Other — ${otherEventNote.trim()}`
                     : (eventType || "Event"),
       eventDate,
+      endDate: endSameDay ? "" : endDate,
       guests:     eventGuests,
       venue:      loc.venue,               // venue name
       venueType:  loc.venueType,
@@ -7637,8 +7656,45 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                       <label style={{ fontSize:10, fontWeight:600, color:C.midGray, display:"block", marginBottom:5 }}>
                         End time{endTime && <span style={{ color:C.orange, fontWeight:800 }}> · {fmtTime12(endTime)}</span>}
                       </label>
-                      <TimeGrid value={endTime} onChange={setEndTime} after={startTime} allowTime={allowTime} />
+                      {/* No past-time filter on the finish: it is bounded by the
+                          start, and on a later date every hour is valid. */}
+                      <TimeGrid value={endTime} onChange={setEndTime}
+                        after={startTime} sameDay={endSameDay}
+                        allowTime={endSameDay ? allowTime : vendorHoursAllow} />
                     </div>
+                  </div>
+
+                  {/* Finishes same day, or later. Without this the end grid only
+                      ever offered times after the start ON THE SAME DAY, so a
+                      party starting at 10pm could finish at 11:30pm at the
+                      latest — an event running to 1am was unbookable. */}
+                  <div>
+                    <label style={{ fontSize:10, fontWeight:600, color:C.midGray, display:"block", marginBottom:5 }}>
+                      Finishes
+                    </label>
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      {[[true,"Same day"],[false,"Next day or later"]].map(([same,label]) => {
+                        const on = endSameDay === same;
+                        return (
+                          <button type="button" key={label}
+                            onClick={()=>{ setEndDate(same ? "" : nextDayIso(eventDate)); setEndTime(""); }}
+                            style={{ padding:"7px 14px", borderRadius:99, fontSize:12, fontWeight:700,
+                                     cursor:"pointer", border:`1.5px solid ${on ? C.orange : C.border}`,
+                                     background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {!endSameDay && (
+                      <div style={{ marginTop:8 }}>
+                        <label style={{ fontSize:10, fontWeight:600, color:C.midGray, display:"block", marginBottom:5 }}>
+                          End date{endDate && <span style={{ color:C.orange, fontWeight:800 }}> · {new Date(endDate+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>}
+                        </label>
+                        <ClickCalendar value={endDate} onChange={setEndDate}
+                          allowDate={(iso) => !eventDate || iso >= eventDate} />
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize:11, fontWeight:700, color:C.black, display:"block", marginBottom:4 }}>
