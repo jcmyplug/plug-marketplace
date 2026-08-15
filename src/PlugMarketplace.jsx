@@ -863,12 +863,56 @@ function weekdayOf(dateStr) {
   return AVAIL_DAYS[(d.getDay() + 6) % 7];
 }
 
+/* Is this date/time already gone? Returns a reason string, or "" if it is still
+   in the future.
+
+   Compared in the browser's local timezone on purpose: the customer picked
+   "3pm" meaning 3pm where the event is, and everyone involved here is in
+   Houston. Comparing against UTC would reject a valid afternoon slot for
+   anyone west of Greenwich.
+
+   With no time given, the whole day counts as available until it is over — an
+   event "today" with no time yet is a normal thing to plan. */
+function pastEventReason(dateStr, startTime) {
+  if (!dateStr) return "";
+  const now = new Date();
+  if (startTime) {
+    const when = new Date(`${dateStr}T${startTime}`);
+    if (!isNaN(when) && when.getTime() <= now.getTime()) return "that time has already passed";
+    return "";
+  }
+  const endOfDay = new Date(`${dateStr}T23:59:59`);
+  if (!isNaN(endOfDay) && endOfDay.getTime() < now.getTime()) return "that date has already passed";
+  return "";
+}
+
+/* Does this booking give the vendor the warning they asked for? `hours` comes
+   from the listing (min_notice_hours, 0 = no minimum). */
+function noticeShortfallReason(dateStr, startTime, hours) {
+  const need = Number(hours) || 0;
+  if (!need || !dateStr) return "";
+  const when = new Date(`${dateStr}T${startTime || "00:00"}`);
+  if (isNaN(when)) return "";
+  const hoursAway = (when.getTime() - Date.now()) / 3600000;
+  if (hoursAway >= need) return "";
+  const label = need % 168 === 0 ? `${need / 168} week${need === 168 ? "" : "s"}`
+              : need % 24  === 0 ? `${need / 24} day${need === 24 ? "" : "s"}`
+              : `${need} hour${need === 1 ? "" : "s"}`;
+  return `needs at least ${label} notice`;
+}
+
 /* Why a vendor can't take a booking on this date/time. Empty array = available.
-   Checks calendar-blocked dates, dates already confirmed, the weekdays the
-   vendor works, and the hour blocks they work. */
+   Checks that the date has not already passed, calendar-blocked dates, dates
+   already confirmed, the weekdays the vendor works, the hour blocks they work,
+   and the advance notice they require. */
 function vendorConflicts(vendor, avail, dateStr, startTime) {
   const out = [];
   if (!dateStr) return out;
+  const past = pastEventReason(dateStr, startTime);
+  if (past) out.push(past);
+  const shortfall = noticeShortfallReason(dateStr, startTime,
+    vendor?.minNoticeHours != null ? vendor.minNoticeHours : vendor?.min_notice_hours);
+  if (shortfall) out.push(shortfall);
   if ((avail?.blocked   || []).includes(dateStr)) out.push("has that date blocked");
   if ((avail?.confirmed || []).includes(dateStr)) out.push("is already booked that date");
   const { days, blocks } = parseSchedule(vendor?.schedule);
@@ -1933,6 +1977,8 @@ async function saveService(vendorId, svc) {
     avail_blocks: JSON.stringify(svc.avail_blocks || []),
     max_per_day:  svc.max_per_day == null || svc.max_per_day === "" ? 1 : (parseInt(svc.max_per_day) || 1),
     gap_hours:    svc.gap_hours == null || svc.gap_hours === "" ? null : (parseInt(svc.gap_hours) || null),
+    min_notice_hours: svc.min_notice_hours == null || svc.min_notice_hours === ""
+                        ? 0 : (parseInt(svc.min_notice_hours) || 0),
     simultaneous: svc.simultaneous === true,
     schedule:     composeSchedule(svc.avail_days || [], svc.avail_blocks || []) || null,
     updated_at:   new Date().toISOString(),
@@ -1966,6 +2012,11 @@ async function getReviewsAbout(subjectId) {
   return (data || []).map(r => ({
     id: r.id, bookingId: r.booking_id, authorId: r.author_id, subjectId: r.subject_id,
     direction: r.direction, rating: r.rating, body: r.body, text: r.body,
+    /* Only ever the name the author agreed to publish. It is stored on the
+       review itself, so showing it needs no lookup against profiles — which
+       anonymous visitors cannot read, and should not be able to. */
+    authorName: r.show_name ? (r.author_name || null) : null,
+    showName: r.show_name === true,
     reply: r.reply, replyAt: r.reply_at, createdAt: r.created_at,
     dims: {
       responsiveness: r.r_responsiveness, quality: r.r_quality, punctuality: r.r_punctuality,
@@ -2004,12 +2055,20 @@ async function existingReview(authorId, subjectId, direction) {
   return r ? { id: r.id, rating: r.rating, body: r.body, reply: r.reply } : null;
 }
 
-async function submitReviewDB({ bookingId, authorId, subjectId, direction, rating, body, dims }) {
+async function submitReviewDB({ bookingId, authorId, subjectId, direction, rating, body, dims,
+                                showName, authorName }) {
   if (IS_PREVIEW) return { ok: true };
   const d = dims || {};
+  /* Take a first name only, and only when the author asked for it. Splitting
+     on whitespace keeps a surname out of a public review even if the account
+     holds a full legal name. */
+  const firstName = String(authorName || "").trim().split(" ").filter(Boolean)[0] || "";
+  const publish   = showName === true && firstName.length > 0;
   const { error } = await sb.from("reviews").insert({
     booking_id: bookingId || null, author_id: authorId, subject_id: subjectId,
     direction, rating: Number(rating), body: body || null,
+    show_name: publish,
+    author_name: publish ? firstName : null,
     r_responsiveness: d.responsiveness != null ? Number(d.responsiveness) : null,
     r_quality:        d.quality != null ? Number(d.quality) : null,
     r_punctuality:    d.punctuality != null ? Number(d.punctuality) : null,
@@ -2108,6 +2167,7 @@ function dbServiceToCard(s, v) {
     schedule:    s.schedule || v.schedule || "",
     maxPerDay:   s.max_per_day == null ? 1 : Number(s.max_per_day),
     gapHours:    s.gap_hours == null ? null : Number(s.gap_hours),
+    minNoticeHours: s.min_notice_hours == null ? 0 : Number(s.min_notice_hours),
     simultaneous: s.simultaneous === true,
     type:        (s.name && kindLabel) ? `${label} · ${kindLabel}` : (subLabel && s.service_type ? `${label} · ${subLabel}` : label),
     city:        [v.biz_city, v.biz_state].filter(Boolean).join(", ") || "Houston, TX",
@@ -2311,6 +2371,7 @@ async function saveRequest(req) {
       address_line2: req.addressLine2 || null, city: req.city || null,
       state: req.state || null, zip_code: req.zip || null,
       start_time: req.startTime || null, end_time: req.endTime || null,
+      end_date: req.endDate || null,
       access_instructions: req.accessInstructions || null,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
       /* Keep original fields for display (preview reads these back directly) */
@@ -2388,6 +2449,7 @@ async function saveRequest(req) {
     address_line2: req.addressLine2 || null, city: req.city || null,
     state: req.state || null, zip_code: req.zip || null,
     start_time: req.startTime || null, end_time: req.endTime || null,
+    end_date: req.endDate || null,
     access_instructions: req.accessInstructions || null,
     /* Strict === true: anything ambiguous is recorded as unverified, because
        wrongly telling a vendor an address is confirmed is the costly error. */
@@ -2452,7 +2514,7 @@ async function getVendorRequests(vendorId) {
     guests: r.guests, venue: r.venue, message: r.message,
     venueType: r.venue_type, streetAddress: r.street_address,
     addressLine2: r.address_line2, city: r.city, state: r.state,
-    zip: r.zip_code, startTime: r.start_time, endTime: r.end_time,
+    zip: r.zip_code, startTime: r.start_time, endTime: r.end_time, endDate: r.end_date,
     addressVerified: r.address_verified === true,
     accessInstructions: r.access_instructions,
     serviceId: r.service_id, serviceName: r.service_name,
@@ -2502,7 +2564,7 @@ async function getUserRequests(userId) {
     guests: r.guests, venue: r.venue, message: r.message,
     venueType: r.venue_type, streetAddress: r.street_address,
     addressLine2: r.address_line2, city: r.city, state: r.state,
-    zip: r.zip_code, startTime: r.start_time, endTime: r.end_time,
+    zip: r.zip_code, startTime: r.start_time, endTime: r.end_time, endDate: r.end_date,
     addressVerified: r.address_verified === true,
     accessInstructions: r.access_instructions,
     serviceId: r.service_id, serviceName: r.service_name,
@@ -4441,6 +4503,7 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
     zip:       req.zip       || "",
     startTime: req.startTime || "",
     endTime:   req.endTime   || "",
+    endDate:   req.endDate   || req.end_date || "",
     accessInstructions: req.accessInstructions || "",
     message:   req.message   || "",
   });
@@ -4449,6 +4512,15 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
 
   async function saveChanges() {
     if (!form.eventDate) { setErr("Please enter an event date."); return; }
+    /* Guard the value, not just the picker. `min` on the input stops the
+       calendar offering past days, but it does not stop a typed date, and it
+       says nothing about the time — so "today at 9am" typed in at 4pm would
+       otherwise sail through. */
+    const gone = pastEventReason(form.eventDate, form.startTime);
+    if (gone) { setErr(`You can't move an event to a time in the past — ${gone}.`); return; }
+    if (form.endDate && form.endDate < form.eventDate) {
+      setErr("The event can't finish before it starts."); return;
+    }
     if (!form.city.trim()) { setErr("Please add at least the event city."); return; }
     setSaving(true);
     try {
@@ -4466,6 +4538,7 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
           address_line2: form.addressLine2 || null, city: form.city || null,
           state: form.state || null, zip_code: form.zip || null,
           start_time: form.startTime || null, end_time: form.endTime || null,
+          end_date: form.endDate || null,
           access_instructions: form.accessInstructions || null,
           message: form.message || null, updated_at: new Date().toISOString(),
         };
@@ -4595,11 +4668,27 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
                   ))}
                 </select>
               </div>
-              <div>
-                <label style={{ fontSize:11, fontWeight:600, color:C.midGray }}>Event date *</label>
-                <input type="date" value={form.eventDate} onChange={e => upd("eventDate", e.target.value)}
-                  style={{ width:"100%", height:40, padding:"0 12px", marginTop:4,
-                           border:`1px solid ${C.border}`, borderRadius:9, fontSize:13, color:C.black, background:"#fff" }} />
+              {/* Start and finish, each with its own date. An event that runs
+                  from 9pm to 1am is a normal booking, and with a single date
+                  the finish time simply looked earlier than the start. */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:C.midGray }}>Start date *</label>
+                  <input type="date" value={form.eventDate} min={isoDate(new Date())}
+                    onChange={e => upd("eventDate", e.target.value)}
+                    style={{ width:"100%", height:40, padding:"0 12px", marginTop:4,
+                             border:`1px solid ${C.border}`, borderRadius:9, fontSize:13, color:C.black, background:"#fff" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:C.midGray }}>
+                    End date{" "}
+                    <span style={{ fontWeight:400, color:C.lightGray }}>— if it runs past midnight</span>
+                  </label>
+                  <input type="date" value={form.endDate || ""} min={form.eventDate || isoDate(new Date())}
+                    onChange={e => upd("endDate", e.target.value)}
+                    style={{ width:"100%", height:40, padding:"0 12px", marginTop:4,
+                             border:`1px solid ${C.border}`, borderRadius:9, fontSize:13, color:C.black, background:"#fff" }} />
+                </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 <div>
@@ -4875,7 +4964,7 @@ function RequestDetailModal({ req, user, onClose, onUpdate, onCancel }) {
 }
 
 
-function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSaved, initialTab }) {
+function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSaved, initialTab, initialConvId }) {
   /* initialTab lets a notification open the panel straight onto the right tab.
      Clicking "Ana Banana replied" used to open the panel on Requests and leave
      the person to go find the message themselves. */
@@ -5446,7 +5535,9 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
               <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
                 Your conversations with vendors and PLUG support.
               </p>
-              <MessagesPanel user={user} />
+              {/* focusId opens the exact thread the notification was about,
+                  instead of dropping people on the list to find it. */}
+              <MessagesPanel user={user} focusId={initialConvId} />
             </div>
           )}
           {tab === "saved" && <SavedVendorsPanel userId={user.id} allCards={allCards} />}
@@ -5877,9 +5968,15 @@ function PhotoManager({ photos, onChange, size = 78 }) {
    request_update, request_sent, booking_cancelled, review) hangs off a booking. */
 function notifTarget(n) {
   const t = String((n && n.type) || "");
-  if (t === "message" || t === "inquiry" || t === "inquiry_reply" ||
-      t === "conversation_closed") return "messages";
-  return "requests";
+  const id = (n && (n.reqId || n.request_id)) || null;
+  if (t === "message" || t === "admin_message" || t === "inquiry" ||
+      t === "inquiry_reply" || t === "conversation_closed") {
+    /* request_id carries the conversation for these types (see the
+       notify_on_message / notify_on_inquiry triggers). Older notifications
+       predate that and have null, so the tab is still the fallback. */
+    return { tab: "messages", id };
+  }
+  return { tab: "requests", id };
 }
 
 function NotificationBell({ userId, onClick, open, onOpenTarget }) {
@@ -5973,6 +6070,25 @@ const BUILD_CATEGORY_WALK = ["places","music","food","production","av","logistic
 const WEEKDAY_LABELS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 const MONTH_LABELS = ["January","February","March","April","May","June","July",
                       "August","September","October","November","December"];
+
+/* The day after a YYYY-MM-DD string. Built from the parsed date rather than by
+   adding 86400000 to a timestamp, so it stays correct across a daylight-saving
+   boundary where a "day" is 23 or 25 hours long. */
+function nextDayIso(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (isNaN(d)) return "";
+  d.setDate(d.getDate() + 1);
+  return isoDate(d);
+}
+
+/* Local "now" as YYYY-MM-DDTHH:MM, so it can be string-compared against a
+   date + time the user picked without either side going through UTC. */
+function localStamp() {
+  const n = new Date();
+  const p = (x) => String(x).padStart(2, "0");
+  return `${isoDate(n)}T${p(n.getHours())}:${p(n.getMinutes())}`;
+}
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -6086,15 +6202,24 @@ function ClickCalendar({ value, onChange, allowDate }) {
   );
 }
 
-/* Half-hour time options from 6:00 AM through 11:30 PM. */
+/* Half-hour options across the whole clock.
+
+   This used to start at 6:00 AM and stop at 11:30 PM, which quietly made two
+   ordinary bookings impossible: anything finishing after midnight, and anything
+   starting before six (a breakfast setup, a load-in). The end-time grid also
+   only ever offered times LATER on the same day, so once a party started at
+   10pm the only choices left were 10:30, 11:00 and 11:30. */
 const TIME_OPTIONS = (() => {
   const out = [];
-  for (let h=6; h<=23; h++) for (const mm of ["00","30"]) out.push(`${String(h).padStart(2,"0")}:${mm}`);
+  for (let h=0; h<=23; h++) for (const mm of ["00","30"]) out.push(`${String(h).padStart(2,"0")}:${mm}`);
   return out;
 })();
 
-function TimeGrid({ value, onChange, after, allowTime }) {
-  const opts = after ? TIME_OPTIONS.filter(t => t > after) : TIME_OPTIONS;
+/* `after` filters to later times, but only makes sense when both ends are on
+   the SAME day. Pass sameDay={false} for an end time on a later date, where
+   1:00 AM is perfectly valid despite sorting before a 10:00 PM start. */
+function TimeGrid({ value, onChange, after, allowTime, sameDay = true }) {
+  const opts = (after && sameDay) ? TIME_OPTIONS.filter(t => t > after) : TIME_OPTIONS;
   return (
     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(84px, 1fr))", gap:6,
                   maxHeight:180, overflowY:"auto", padding:"2px" }}>
@@ -6460,8 +6585,19 @@ function EventsCalendar({ bookings, role }) {
   const other = b => role === "vendor" ? (b.userName || "Guest") : (b.vendorName || "Vendor");
 
   const all = bookings || [];
-  const upcoming = all.filter(b => (b.eventDate || b.event_date) && (b.eventDate || b.event_date) >= isoDate(today)).length;
-  const past = all.length - upcoming;
+  /* "Upcoming" has to mean work that is still going to happen. Counting every
+     future row told a vendor they had three events this month when two had been
+     cancelled — the number that matters most on this screen was the one most
+     likely to be wrong. Cancelled and declined bookings stay visible on the
+     grid for the record; they just do not count as upcoming.
+
+     `past` is now counted by date rather than as (total − upcoming), because
+     with cancellations excluded that subtraction would quietly file every
+     cancelled future booking under "past". */
+  const dateOf = b => b.eventDate || b.event_date;
+  const isLive = b => !isCancelledStatus(b.status) && !isDeclinedStatus(b.status);
+  const upcoming = all.filter(b => dateOf(b) && dateOf(b) >= isoDate(today) && isLive(b)).length;
+  const past     = all.filter(b => dateOf(b) && dateOf(b) <  isoDate(today)).length;
   const selList = selDay ? (byDate[selDay] || []) : [];
 
   return (
@@ -6569,6 +6705,11 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   const [wizDate,  setWizDate]  = useState("");
   const [wizStart, setWizStart] = useState("");
   const [wizEnd,   setWizEnd]   = useState("");
+  /* Empty means "finishes the same day". Storing the absence rather than a
+     copy of the start date keeps same-day bookings writing end_date = null,
+     which is exactly what the column means. */
+  const [wizEndDate, setWizEndDate] = useState("");
+  const endSameDay = !wizEndDate || wizEndDate === wizDate;
 
   const evt = EVENT_PACKAGES.find(p => p.id === eventId);
   const walk = BUILD_CATEGORY_WALK;
@@ -6579,10 +6720,12 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   /* Every vendor added through the wizard carries the up-front event details,
      so the booking request has the location/date/time without re-asking. */
   function addWithDetails(v) {
-    addToCart({ ...v, city: wizCity, eventDate: wizDate, startTime: wizStart, endTime: wizEnd });
+    addToCart({ ...v, city: wizCity, eventDate: wizDate, startTime: wizStart, endTime: wizEnd,
+                endDate: endSameDay ? "" : wizEndDate });
   }
   const detailsPayload = () => ({
     city: wizCity, eventDate: wizDate, startTime: wizStart, endTime: wizEnd,
+    endDate: endSameDay ? "" : wizEndDate,
     eventType: evt?.label || "Event",
   });
 
@@ -6632,24 +6775,61 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
           {TX_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
 
-        {/* Date */}
+        {/* Start date */}
         <label style={{ display:"block", fontSize:13, fontWeight:800, marginBottom:7 }}>
-          📅 Date{wizDate ? <span style={{ color:C.orange }}> · {new Date(wizDate+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</span> : ""}
+          📅 Start date{wizDate ? <span style={{ color:C.orange }}> · {new Date(wizDate+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric",year:"numeric"})}</span> : ""}
         </label>
         <div style={{ marginBottom:18 }}>
-          <ClickCalendar value={wizDate} onChange={setWizDate} />
+          <ClickCalendar value={wizDate} onChange={(d)=>{
+            setWizDate(d);
+            /* Keep the finish from drifting behind the start. */
+            if (wizEndDate && wizEndDate < d) setWizEndDate(d);
+          }} />
         </div>
 
-        {/* Time */}
+        {/* Start time */}
         <label style={{ display:"block", fontSize:13, fontWeight:800, marginBottom:7 }}>⏰ Start time</label>
         <div style={{ marginBottom:14 }}>
-          <TimeGrid value={wizStart} onChange={(t)=>{ setWizStart(t); if (wizEnd && wizEnd <= t) setWizEnd(""); }} />
+          <TimeGrid value={wizStart}
+            allowTime={wizDate === isoDate(new Date()) ? (t => `${wizDate}T${t}` > localStamp()) : undefined}
+            onChange={(t)=>{ setWizStart(t); if (endSameDay && wizEnd && wizEnd <= t) setWizEnd(""); }} />
         </div>
+
         {wizStart && (
           <>
+            {/* Finish. Same day by default, because most events are — but one
+                tap opens a second calendar for anything running past midnight,
+                which the single-date version could not express at all. */}
+            <label style={{ display:"block", fontSize:13, fontWeight:800, marginBottom:7 }}>🌙 Finishes</label>
+            <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+              {[[true,"Same day"],[false,"Next day or later"]].map(([same,label]) => {
+                const on = endSameDay === same;
+                return (
+                  <button type="button" key={label}
+                    onClick={()=>{ setWizEndDate(same ? "" : nextDayIso(wizDate)); setWizEnd(""); }}
+                    style={{ padding:"8px 15px", borderRadius:99, fontSize:12.5, fontWeight:700,
+                             cursor:"pointer", border:`1.5px solid ${on ? C.orange : C.border}`,
+                             background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {!endSameDay && (
+              <div style={{ marginBottom:14 }}>
+                <label style={{ display:"block", fontSize:12, fontWeight:700, marginBottom:6, color:C.midGray }}>
+                  End date{wizEndDate ? <span style={{ color:C.orange }}> · {new Date(wizEndDate+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"long",day:"numeric"})}</span> : ""}
+                </label>
+                <ClickCalendar value={wizEndDate} onChange={setWizEndDate}
+                  allowDate={(iso) => !wizDate || iso >= wizDate} />
+              </div>
+            )}
+
             <label style={{ display:"block", fontSize:13, fontWeight:800, marginBottom:7 }}>⏰ End time</label>
             <div style={{ marginBottom:18 }}>
-              <TimeGrid value={wizEnd} onChange={setWizEnd} after={wizStart} />
+              <TimeGrid value={wizEnd} onChange={setWizEnd}
+                after={wizStart} sameDay={endSameDay} />
             </div>
           </>
         )}
@@ -8476,7 +8656,7 @@ function AdminPanel({ user, onClose }) {
 }
 
 
-function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorReply, onAddToCart, inCart, onRequireAuth }) {
+function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorReply, onAddToCart, inCart, onRequireAuth, isFav, onToggleFav }) {
   if (!vendor) { if (onBack) onBack(); return null; }
 
   /* Always resolve to the clean vendor-account UUID. Some code paths carry a
@@ -8638,6 +8818,9 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
   const [dimRatings,     setDimRatings]     = useState({ responsiveness:5, quality:5, punctuality:5, recommend:5, rebook:5 });
   const newRating = Math.round(REVIEW_DIMS.reduce((a,[k]) => a + (dimRatings[k]||0), 0) / REVIEW_DIMS.length);
   const [newText,        setNewText]        = useState("");
+  /* Off by default: a review published under a real name should be a decision
+     the customer made, not one they discover afterwards. */
+  const [showMyName,     setShowMyName]     = useState(false);
   const [replyText,      setReplyText]      = useState({});
   const [replyOpen,      setReplyOpen]      = useState({});
   const [inquiryMsg,     setInquiryMsg]     = useState("");
@@ -8684,6 +8867,8 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
       const res = await submitReviewDB({
         authorId: user.id, subjectId: vendorId, direction: "user_to_vendor",
         rating: newRating, body: newText.trim(), dims: dimRatings,
+        showName: showMyName,
+        authorName: user.displayName || user.name || "",
       });
       if (!res.ok) { setRevErr(res.error); return; }
       setNewText(""); setShowReviewForm(false);
@@ -8730,14 +8915,38 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
           {vendor.instant && <span style={{ background:C.greenSoft, color:C.green, fontSize:11, fontWeight:700, padding:"3px 9px", borderRadius:99 }}>⚡ Instant</span>}
           {disp.cat && <span style={{ background:"#F3F4F6", color:C.midGray, fontSize:11, fontWeight:700, padding:"3px 9px", borderRadius:99 }}>{catLabelOf(disp.cat)}</span>}
         </div>
-        <h1 style={{ margin:0, fontSize:30, fontWeight:800, letterSpacing:"-0.03em",
-                     color:C.black, lineHeight:1.15 }}>
-          {(selService ? serviceLabel(selService) : (vendor.serviceName || disp.name))}
-        </h1>
-        <p style={{ margin:"5px 0 0", fontSize:14, color:C.midGray }}>
-          by <span style={{ fontWeight:800, color:C.black }}>{disp.name}</span>
-          {disp.city ? <span style={{ color:C.lightGray }}> · 📍 {disp.city}</span> : null}
-        </p>
+        {/* Save sits on the title row, not over the photo. People decide to
+            keep a vendor while reading the name and price, and until now the
+            only heart was back on the results grid — so saving meant going
+            back, finding the card again, and hearting it from there. */}
+        <div style={{ display:"flex", alignItems:"flex-start", gap:14 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <h1 style={{ margin:0, fontSize:30, fontWeight:800, letterSpacing:"-0.03em",
+                         color:C.black, lineHeight:1.15 }}>
+              {(selService ? serviceLabel(selService) : (vendor.serviceName || disp.name))}
+            </h1>
+            <p style={{ margin:"5px 0 0", fontSize:14, color:C.midGray }}>
+              by <span style={{ fontWeight:800, color:C.black }}>{disp.name}</span>
+              {disp.city ? <span style={{ color:C.lightGray }}> · 📍 {disp.city}</span> : null}
+            </p>
+          </div>
+          {onToggleFav && (
+            <button type="button" className="btn"
+              onClick={() => { if (!user) { if (onRequireAuth) onRequireAuth(); return; }
+                               onToggleFav(vendor.id); }}
+              title={isFav ? "Remove from saved" : "Save this vendor"}
+              aria-pressed={isFav ? "true" : "false"}
+              style={{ flexShrink:0, display:"flex", alignItems:"center", gap:7,
+                       background: isFav ? "#FEF2F2" : "#fff",
+                       border:`1.5px solid ${isFav ? "#FCA5A5" : C.border}`,
+                       borderRadius:99, padding:"9px 15px", cursor:"pointer",
+                       fontSize:13, fontWeight:700,
+                       color: isFav ? "#B91C1C" : C.black }}>
+              <span style={{ fontSize:15, lineHeight:1 }}>{isFav ? "❤️" : "🤍"}</span>
+              {isFav ? "Saved" : "Save"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Photo gallery */}
@@ -8971,6 +9180,29 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
                   style={{ width:"100%", minHeight:90, border:`1px solid ${C.border}`, borderRadius:10,
                            padding:"10px 12px", fontSize:13, color:C.black, resize:"vertical", marginTop:12,
                            background:"#fff", fontFamily:"'Inter',sans-serif" }} />
+                {/* Named or not, decided here rather than assumed. Shows the
+                    exact name that will appear, so there is no guessing about
+                    whether it means a full name or a first name. */}
+                <label style={{ display:"flex", alignItems:"flex-start", gap:9, marginTop:12,
+                                cursor:"pointer", padding:"10px 12px", borderRadius:10,
+                                background:"#fff", border:`1px solid ${C.border}` }}>
+                  <input type="checkbox" checked={showMyName}
+                    onChange={e => setShowMyName(e.target.checked)}
+                    style={{ marginTop:2, width:15, height:15, accentColor:C.orange, cursor:"pointer" }} />
+                  <span style={{ fontSize:12, color:C.midGray, lineHeight:1.55 }}>
+                    Show my first name on this review{" "}
+                    <strong style={{ color:C.black }}>
+                      ({String(user?.displayName || user?.name || "").trim().split(" ").filter(Boolean)[0] || "your name"})
+                    </strong>
+                    <br />
+                    <span style={{ color:C.lightGray }}>
+                      {showMyName
+                        ? "Your first name will be public next to this review."
+                        : "Leave unticked and this shows as “Verified customer”."}
+                    </span>
+                  </span>
+                </label>
+
                 <div style={{ display:"flex", gap:8, marginTop:10 }}>
                   <button onClick={submitReview} className="btn"
                     style={{ background:C.orange, color:"#fff", border:"none", borderRadius:10, padding:"9px 20px", fontSize:13, fontWeight:700 }}>
@@ -9342,7 +9574,11 @@ const HERO_SLIDES = [
   { url:"https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=1600&q=80", pos:"center 30%" },
 ];
 
-function HeroVideo({ poster }) {
+/* `dotsBottom` exists because the hero has a stats bar pinned across its
+   bottom edge ("Houston, TX / Live now"). The dots used to sit 16px up, which
+   put them on top of that bar. The hero owns the bar, so the hero tells the
+   slideshow how much room to leave rather than this component guessing. */
+function HeroVideo({ poster, dotsBottom = 16 }) {
   const [current, setCurrent] = useState(0);
   const [prev, setPrev]       = useState(null);
   const [fading, setFading]   = useState(false);
@@ -9376,7 +9612,7 @@ function HeroVideo({ poster }) {
                  opacity: fading ? 1 : 1,
                  transition:"opacity 1s ease" }} />
       {/* Dot indicators */}
-      <div style={{ position:"absolute", bottom:16, left:"50%", transform:"translateX(-50%)",
+      <div style={{ position:"absolute", bottom:dotsBottom, left:"50%", transform:"translateX(-50%)",
                     display:"flex", gap:6, zIndex:5 }}>
         {HERO_SLIDES.map((_, i) => (
           <button key={i} onClick={() => setCurrent(i)} className="btn"
@@ -9500,7 +9736,7 @@ function ServicesManager({ vendorId }) {
   const [uploading,setUploading]= useState(false);
 
   const blank = { category:"food", subcategory:"", subcategories:[], name:"", service_type:"", description:"",
-                  price_value:"", capacity:"", photos:[], packages:[], active:true, offsite:false, travel_miles:"", service_areas:"", addons:[], avail_days:[], avail_blocks:[], max_per_day:1, gap_hours:2, simultaneous:false };
+                  price_value:"", capacity:"", photos:[], packages:[], active:true, offsite:false, travel_miles:"", service_areas:"", addons:[], avail_days:[], avail_blocks:[], max_per_day:1, gap_hours:2, simultaneous:false, min_notice_hours:0 };
 
   async function load() {
     setLoading(true);
@@ -9531,6 +9767,7 @@ function ServicesManager({ vendorId }) {
       avail_blocks: parseEventTypes(s.avail_blocks),
       max_per_day: s.max_per_day == null ? 1 : s.max_per_day,
       gap_hours: s.gap_hours == null ? 2 : s.gap_hours,
+      min_notice_hours: s.min_notice_hours == null ? 0 : s.min_notice_hours,
       simultaneous: s.simultaneous === true,
       name: s.name || "",
       service_type: s.service_type || "",
@@ -9827,9 +10064,17 @@ function ServicesManager({ vendorId }) {
           {/* Availability for THIS listing — click-only, no typing. */}
           <div style={{ marginTop:12, background:"#F9FAFB", border:`1px solid ${C.border}`,
                         borderRadius:11, padding:"12px 14px" }}>
-            <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>When is this listing available?</p>
-            <p style={{ margin:"3px 0 9px", fontSize:11, color:C.midGray }}>
-              Tap the days and time blocks you'll take bookings for this specific listing.
+            {/* Deliberately no longer called "availability". Vendors also have a
+                calendar on their profile, and two things with the same name
+                answering different questions is what made this confusing. This
+                one is the recurring weekly pattern for ONE service; the calendar
+                is the specific dates the whole business is away. */}
+            <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>When is this service offered?</p>
+            <p style={{ margin:"3px 0 9px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
+              The days and times <em>this particular service</em> runs — a venue might be all day
+              while your DJ listing is evenings only.{" "}
+              <strong>Specific dates you're away are set once</strong> on your Availability tab and
+              apply to every listing, so there's no need to repeat them here.
             </p>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:9 }}>
               {AVAIL_DAYS.map(d => {
@@ -9922,6 +10167,34 @@ function ServicesManager({ vendorId }) {
                 </select>
               </div>
             )}
+          </div>
+
+          {/* How much warning do you need?
+              Stored as hours rather than a number plus a unit, so "same day, 12
+              hours" and "two weeks" are the same field and the booking check is
+              one comparison instead of a unit conversion. */}
+          <div style={{ marginTop:12, background:"#F9FAFB", border:`1px solid ${C.border}`,
+                        borderRadius:11, padding:"12px 14px" }}>
+            <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>
+              How much notice do you need before an event?
+            </p>
+            <p style={{ margin:"3px 0 9px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
+              Customers won't be able to request this service any later than this. Use it to stop
+              last-minute requests you cannot realistically prepare for.
+            </p>
+            <select style={{ ...F, maxWidth:240 }}
+              value={editing.min_notice_hours == null ? 0 : editing.min_notice_hours}
+              onChange={e => setField("min_notice_hours", e.target.value)}>
+              <option value={0}>No minimum — same day is fine</option>
+              <option value={6}>6 hours</option>
+              <option value={12}>12 hours</option>
+              <option value={24}>1 day</option>
+              <option value={48}>2 days</option>
+              <option value={72}>3 days</option>
+              <option value={168}>1 week</option>
+              <option value={336}>2 weeks</option>
+              <option value={720}>1 month</option>
+            </select>
           </div>
 
           {/* Photos for this specific service */}
@@ -10865,17 +11138,23 @@ function VendorDashboard({ user, onLogout }) {
   const [editing,  setEditing]  = useState(false);
   const [busyId,   setBusyId]   = useState(null);
   const [err,      setErr]      = useState("");
+  /* Reviews written ABOUT this vendor. The rating tile used to be the only
+     mention of them anywhere in the dashboard, and it linked to Requests — so
+     a vendor could see they had 5.0 stars and had no way to read why. */
+  const [revs,     setRevs]     = useState([]);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
-    const [r, l, n] = await Promise.all([
+    const [r, l, n, rv] = await Promise.all([
       RLS.getMyRequests(user).catch(()=>[]),
       getMyListing(user.id).catch(()=>null),
       getNotifs(user.id).catch(()=>[]),
+      getReviewsAbout(user.id).catch(()=>[]),
     ]);
     setRequests(Array.isArray(r) ? r : []);
     setListing(l);
     setNotifs(Array.isArray(n) ? n : []);
+    setRevs(Array.isArray(rv) ? rv : []);
     setLoading(false);
   }, [user]);
 
@@ -10913,7 +11192,7 @@ function VendorDashboard({ user, onLogout }) {
   );
 
   const TABS = [["overview","Overview"],["requests","Requests"],["inquiries","Messages"],["listing","My listing"],
-                ["calendar","Availability"],["notifs","Notifications"]];
+                ["reviews","Reviews"],["calendar","Availability"],["notifs","Notifications"]];
 
   return (
     <div className="plug" style={{ minHeight:"100vh", background:"#F7F8FA" }}>
@@ -11016,8 +11295,9 @@ function VendorDashboard({ user, onLogout }) {
                 <div onClick={()=>setTab("requests")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="View declined">
                   <Metric label="DECLINED"     value={declined.length} sub="tap to view" />
                 </div>
-                <div onClick={()=>setTab("requests")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Reviews come from confirmed bookings">
-                  <Metric label="RATING"       value={listing?.rating ? Number(listing.rating).toFixed(1) : "—"} sub="from reviews" accent="#F59E0B" />
+                <div onClick={()=>setTab("reviews")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Read your reviews">
+                  <Metric label="RATING"       value={listing?.rating ? Number(listing.rating).toFixed(1) : "—"}
+                    sub={revs.length ? `read ${revs.length} review${revs.length===1?"":"s"}` : "from reviews"} accent="#F59E0B" />
                 </div>
                 <div onClick={()=>setTab("listing")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Edit your listings & photos">
                   <Metric label="PHOTOS"       value={(listing?.photos||[]).length} sub="tap to manage" />
@@ -11232,12 +11512,75 @@ function VendorDashboard({ user, onLogout }) {
             </div>
           )}
 
-          {/* AVAILABILITY */}
+          {/* REVIEWS RECEIVED */}
+          {tab === "reviews" && (
+            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
+              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Reviews you have received</h3>
+              <p style={{ margin:"0 0 14px", fontSize:12, color:C.midGray }}>
+                Written by customers after a confirmed booking. You can reply to any of them from your
+                public profile page.
+              </p>
+
+              {revs.length === 0 ? (
+                <p style={{ fontSize:13, color:C.midGray, margin:0 }}>
+                  No reviews yet. They appear here once a customer reviews a completed booking.
+                </p>
+              ) : (
+                <>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14,
+                                paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
+                    <span style={{ fontSize:30, fontWeight:800, fontFamily:"'Playfair Display', serif" }}>
+                      {(revs.reduce((a,r)=>a+(Number(r.rating)||0),0) / revs.length).toFixed(1)}
+                    </span>
+                    <div>
+                      <Stars r={Math.round(revs.reduce((a,r)=>a+(Number(r.rating)||0),0) / revs.length)} size={14} />
+                      <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray }}>
+                        {revs.length} review{revs.length===1?"":"s"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {revs.map(r => (
+                    <div key={r.id} style={{ borderTop:`1px solid ${C.border}`, padding:"12px 0" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", gap:10, alignItems:"center" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <Stars r={r.rating} size={13} />
+                          <span style={{ fontSize:12, fontWeight:700 }}>
+                            {r.authorName || "Verified customer"}
+                          </span>
+                        </div>
+                        <span style={{ fontSize:10.5, color:C.lightGray }}>
+                          {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ""}
+                        </span>
+                      </div>
+                      {r.body && (
+                        <p style={{ margin:"6px 0 0", fontSize:13, color:C.midGray, lineHeight:1.65 }}>{r.body}</p>
+                      )}
+                      {r.reply && (
+                        <div style={{ marginTop:8, marginLeft:12, paddingLeft:12,
+                                      borderLeft:`2px solid ${C.border}` }}>
+                          <p style={{ margin:0, fontSize:10.5, fontWeight:800, color:C.orange }}>Your reply</p>
+                          <p style={{ margin:"2px 0 0", fontSize:12.5, color:C.midGray, lineHeight:1.6 }}>{r.reply}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* AVAILABILITY — dates only. The weekly pattern (which days and what
+              times a given service runs) lives on each listing, because a venue
+              can be all day while a DJ listing is evenings only. This calendar
+              is the one that applies to everything you offer. */}
           {tab === "calendar" && (
             <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>My availability</h3>
+              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Days off &amp; booked dates</h3>
               <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
-                Mark the dates you're unavailable. Customers see this before requesting — but you still
+                Mark the dates you're unavailable. <strong>This applies to every listing you have.</strong>{" "}
+                The days of the week and times each service runs are set on the listing itself, under
+                “When this service is offered”. Customers see this before requesting — but you still
                 approve every booking.
               </p>
               <AvailabilityCalendar vendorId={user.id} />
@@ -11373,6 +11716,8 @@ export default function PlugApp() {
   /* Which tab the account panel opens on. A notification sets this before
      opening the panel so the person lands on what they were told about. */
   const [accountTab,     setAccountTab]     = useState("requests");
+  /* Which conversation a notification asked us to open, if any. */
+  const [accountConvId,  setAccountConvId]  = useState(null);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [notifOpen,      setNotifOpen]      = useState(false);
   const [originBlocked,  setOriginBlocked]  = useState(false);
@@ -11868,6 +12213,7 @@ export default function PlugApp() {
           justSent={recentlySent}
           allCards={dbVendors}
           initialTab={accountTab}
+          initialConvId={accountConvId}
           onClose={() => { setAccountOpen(false); setNotifOpen(false); }}
           onLogout={handleLogout}
           onListingSaved={refreshVendors}
@@ -11937,7 +12283,8 @@ export default function PlugApp() {
                   onClick={() => { setNotifOpen(o=>!o); setAccountOpen(false); }}
                   /* Close the bell and open the account panel on the tab that
                      actually holds the thing they tapped. */
-                  onOpenTarget={(t) => { setAccountTab(t); setNotifOpen(false); setAccountOpen(true); }} />
+                  onOpenTarget={(t) => { setAccountTab(t.tab); setAccountConvId(t.id);
+                                         setNotifOpen(false); setAccountOpen(true); }} />
               )}
               <button onClick={() => { setAccountOpen(o=>!o); setNotifOpen(false); }}
                 className="btn"
@@ -12096,7 +12443,10 @@ export default function PlugApp() {
 
       {isHero && (
         <div style={{ position:"relative", height:480, overflow:"hidden" }}>
-          <HeroVideo poster={market?.hero || "https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=1600&q=80"} />
+          {/* 78 clears the stats bar below (12px padding, two lines of text,
+              12px padding) with a few pixels to spare. */}
+          <HeroVideo dotsBottom={78}
+            poster={market?.hero || "https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=1600&q=80"} />
           <div style={{ position:"absolute", inset:0, background:"linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.45) 40%, rgba(0,0,0,0.2) 100%)" }} />
           <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", padding:"0 7% 0 6%" }}>
             <div style={{ maxWidth:560 }} className="fade-up">
@@ -12221,6 +12571,8 @@ export default function PlugApp() {
       {vendorPage && (
         <div style={{ maxWidth:1100, margin:"0 auto", padding:"32px 24px" }}>
           <VendorProfile vendor={vendorPage} user={user} reviews={reviews}
+            isFav={favorites.includes(vendorPage.id)}
+            onToggleFav={handleToggleFav}
             onBack={()=>setVendorPage(null)}
             onRequireAuth={()=>setAuthModal(true)}
             onAddReview={(vid,rev) => { if(!RLS.canReview(user)){setAuthModal(true);return;} addReview(vid,rev); }}
