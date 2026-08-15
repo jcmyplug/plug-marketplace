@@ -12068,7 +12068,16 @@ export default function PlugApp() {
           )}
 
           {/* ── VENDOR GRID ───────────────────────────────────────────── */}
-          {!showSubGrid && activeCat !== "build" && (
+          {/* This used to be hidden whenever the sub-category tiles were on
+              screen, so picking "Food & Drinks" showed six tiles and no
+              listings — even with three catering listings sitting right there.
+              Customers read that as "this category is empty" and left.
+
+              The tiles are a way to narrow down, not a gate to get through. So
+              the results now render underneath them, and the count line above
+              ("3 vendors in Food & Drinks") tells you what is there before you
+              commit to a sub-category. */}
+          {activeCat !== "build" && (
             <div className="fade-up" ref={vendorGridRef}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
                 <p style={{ fontSize:13, color:C.midGray, margin:0, fontWeight:500 }}>
