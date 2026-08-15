@@ -2473,7 +2473,7 @@ async function getUserRequests(userId) {
   const vNameById = {};
   if (vendorIds.length) {
     try {
-      const { data: vps } = await sb.from("vendor_profiles")
+      const { data: vps } = await sb.from("vendor_directory")
         .select("id, business_name, biz_legal").in("id", vendorIds).get();
       (vps || []).forEach(v => { vNameById[v.id] = v.biz_legal || v.business_name || null; });
     } catch { /* best-effort */ }
@@ -3031,7 +3031,7 @@ async function getConversations(userId) {
   const names = {};
   if (others.length) {
     const [{ data: vps }, { data: profs }] = await Promise.all([
-      sb.from("vendor_profiles").select("id, business_name, biz_legal").in("id", others).get(),
+      sb.from("vendor_directory").select("id, business_name, biz_legal").in("id", others).get(),
       sb.from("profiles").select("id, display_name, full_name").in("id", others).get(),
     ]);
     (profs || []).forEach(p => { names[p.id] = p.display_name || p.full_name || "Member"; });
