@@ -12052,6 +12052,25 @@ export default function PlugApp() {
 
   /* The nav is transparent only when on the hero (all, no search, no vendor page) */
   const isHero = activeCat === "all" && !search && !vendorPage;
+
+  /* Keeping the box on screen is only half of it: the hero input and the
+     sticky-bar input are two different DOM nodes, so React unmounts one and
+     mounts the other mid-keystroke and focus falls back to <body>. Both carry
+     `searchRef`, so once the swap has happened the ref points at whichever one
+     now exists — hand focus back to it and put the caret at the end, and the
+     handover is invisible to the person typing. */
+  const wasHero = useRef(isHero);
+  useEffect(() => {
+    if (wasHero.current && !isHero && search) {
+      const el = searchRef.current;
+      if (el && document.activeElement !== el) {
+        el.focus();
+        const end = el.value.length;
+        try { el.setSelectionRange(end, end); } catch {}
+      }
+    }
+    wasHero.current = isHero;
+  }, [isHero, search]);
   const navOnHero = isHero && !navScrolled;
 
   function pickCat(id) {
@@ -12467,8 +12486,17 @@ export default function PlugApp() {
         </div>
       )}
 
-      {/* Sticky text search — appears when scrolled past hero */}
-      {navScrolled && activeCat !== "build" && !vendorPage && (
+      {/* Sticky text search — appears when scrolled past the hero, AND whenever
+          there is a search term.
+
+          The `search` clause is not cosmetic, it is the whole bug. `isHero` is
+          false the moment `search` is non-empty, so the first keystroke in the
+          big hero search box unmounted the hero — and with it, the input being
+          typed into. At the top of the page `navScrolled` is still false, so
+          this bar did not take over either: the page was left with no search
+          field at all. One character went in, the box vanished, and the rest of
+          the word went nowhere. */}
+      {(navScrolled || search) && activeCat !== "build" && !vendorPage && (
         <div style={{ position:"sticky", top:64, zIndex:190,
                       background:"rgba(255,255,255,0.97)", backdropFilter:"blur(20px)",
                       borderBottom:`1px solid ${C.border}`,
