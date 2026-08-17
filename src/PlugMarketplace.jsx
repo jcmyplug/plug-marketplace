@@ -601,6 +601,26 @@ select:focus:not(:focus-visible) { outline: none; }
 @media (max-width: 768px) {
   .vendor-grid { grid-template-columns: repeat(auto-fill, minmax(160px,1fr)) !important; }
   .hide-mobile { display: none !important; }
+
+  /* Two-column pages become one column. The sidebar (price, booking box) is
+     the thing people came for, so it goes ABOVE the description rather than
+     below a screen and a half of text. */
+  .plug-2col      { grid-template-columns: 1fr !important; }
+  .plug-2col-side { order: -1; }
+
+  /* The hero stats strip is four columns of centred text. Below 768px that is
+     four two-character slivers, so it wraps into a 2x2 grid instead. */
+  .plug-stats     { display: grid !important; grid-template-columns: 1fr 1fr !important;
+                    gap: 4px 12px !important; padding: 10px 6% !important; }
+  .plug-stats > div { border-right: none !important; padding-left: 0 !important; }
+}
+
+/* Anything pinned to a corner has to fit the screen it is pinned to. A fixed
+   380px popover is wider than the content area of a 375px phone, so it ran off
+   the right edge with no way to scroll to it. */
+@media (max-width: 460px) {
+  .plug-popover { right: 8px !important; left: 8px !important; width: auto !important;
+                  max-height: 88vh !important; }
 }
 `;
 
@@ -2746,7 +2766,12 @@ async function getNotifs(userId) {
     .limit(50).get();
   return (data || []).map(n => ({
     id: n.id, type: n.type, title: n.title, body: n.body,
-    reqId: n.request_id, read: n.is_read, ts: new Date(n.created_at).getTime(),
+    reqId: n.request_id,
+    /* Conversation events point at their own table now. request_id is foreign-
+       keyed to booking_requests and rejects anything else — writing a
+       conversation id into it broke sending messages outright. */
+    convId: n.conversation_id || n.inquiry_id || null,
+    read: n.is_read, ts: new Date(n.created_at).getTime(),
   }));
 }
 
@@ -5250,8 +5275,10 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
   return (
     <>
       <div style={{ position:"fixed", inset:0, zIndex:490 }} onClick={onClose} />
-      <div style={{ position:"fixed", right:20, top:66, zIndex:500, background:"#fff",
-                    borderRadius:20, width:380, maxHeight:"82vh", display:"flex",
+      <div className="plug-popover"
+        style={{ position:"fixed", right:20, top:66, zIndex:500, background:"#fff",
+                    borderRadius:20, width:380, maxWidth:"calc(100vw - 16px)",
+                    maxHeight:"82vh", display:"flex",
                     flexDirection:"column",
                     boxShadow:"0 12px 52px rgba(0,0,0,0.22)",
                     animation:"fadeIn 0.15s ease both" }}>
@@ -5973,7 +6000,8 @@ function PhotoManager({ photos, onChange, size = 78 }) {
    request_update, request_sent, booking_cancelled, review) hangs off a booking. */
 function notifTarget(n) {
   const t = String((n && n.type) || "");
-  const id = (n && (n.reqId || n.request_id)) || null;
+  const id = (n && (n.convId || n.conversation_id || n.inquiry_id)) || null;
+  const bookingId = (n && (n.reqId || n.request_id)) || null;
   if (t === "message" || t === "admin_message" || t === "inquiry" ||
       t === "inquiry_reply" || t === "conversation_closed") {
     /* request_id carries the conversation for these types (see the
@@ -5981,7 +6009,7 @@ function notifTarget(n) {
        predate that and have null, so the tab is still the fallback. */
     return { tab: "messages", id };
   }
-  return { tab: "requests", id };
+  return { tab: "requests", id: bookingId };
 }
 
 function NotificationBell({ userId, onClick, open, onOpenTarget }) {
@@ -9096,7 +9124,8 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
       )}
 
       {/* Two-column layout */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:24, alignItems:"start" }}>
+      <div className="plug-2col"
+        style={{ display:"grid", gridTemplateColumns:"1fr 300px", gap:24, alignItems:"start" }}>
 
         {/* LEFT */}
         <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
@@ -9352,8 +9381,11 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
           </div>
         </div>
 
-        {/* RIGHT — booking card */}
-        <div style={{ position:"sticky", top:80 }}>
+        {/* RIGHT — booking card. On a phone the grid collapses to one column
+            and `plug-2col-side` pulls this above the description: the price and
+            the booking button are what someone opened the page for, and burying
+            them under a screen of copy is how a booking gets abandoned. */}
+        <div className="plug-2col-side" style={{ position:"sticky", top:80 }}>
           <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:18, padding:"20px 20px 22px",
                         boxShadow:"0 0 0 1px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.08)" }}>
             <p style={{ fontSize:13, fontWeight:600, color:C.midGray, margin:"0 0 2px" }}>Starting at</p>
@@ -12812,7 +12844,8 @@ export default function PlugApp() {
             </div>
           </div>
           {/* Stats bar */}
-          <div style={{ position:"absolute", bottom:0, left:0, right:0,
+          <div className="plug-stats"
+            style={{ position:"absolute", bottom:0, left:0, right:0,
                         background:"rgba(0,0,0,0.65)", backdropFilter:"blur(8px)",
                         padding:"12px 6%", display:"flex", gap:0 }}>
             {[["8","Service categories"],["50+","Service types"],["Houston, TX","Live now"],["Free","To browse & request"]].map(([v,l],i)=>(
