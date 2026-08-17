@@ -45,7 +45,18 @@ function Emoji({ e, size = 20, style: s = {} }) {
     );
   }
   return (
+    /* Every emoji on the page is its own network request to the Twemoji CDN,
+       and there are roughly seventy of them. Left at default priority they all
+       start immediately and compete with the hero image, the listing photos and
+       the JS bundle for a phone's handful of connections — decoration racing
+       the actual content.
+
+       `lazy` keeps the ones below the fold from being fetched until they are
+       scrolled near, and `low` tells the browser these can wait behind anything
+       that matters. Both degrade to a normal fetch on browsers that ignore
+       them, and the existing onError fallback to the system emoji is unchanged. */
     <img src={url} alt={e} draggable={false} onError={() => setFailed(true)}
+      loading="lazy" decoding="async" fetchPriority="low"
       style={{ width: size, height: size, display: "inline-block", verticalAlign: "middle",
                objectFit: "contain", flexShrink: 0, ...s }} />
   );
