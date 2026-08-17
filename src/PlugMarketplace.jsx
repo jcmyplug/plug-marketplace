@@ -5896,6 +5896,11 @@ function AvailabilityCalendar({ vendorId }) {
    it properly needs either a library or a lot of pointer-event code. One tap to
    promote a photo covers the common case; the arrows handle the rest.
 ────────────────────────────────────────────────────────────────────────────── */
+/* One number, used by every photo picker and every counter. The profile form
+   said 8, the listing editor said nothing at all, and neither stopped you
+   adding more — so vendors uploaded until something silently gave. */
+const MAX_PHOTOS = 10;
+
 function PhotoManager({ photos, onChange, size = 78 }) {
   const list = Array.isArray(photos) ? photos : [];
 
@@ -7280,6 +7285,24 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
        midnight would otherwise submit yesterday. */
     const gone = pastEventReason(eventDate, startTime);
     if (gone) { setErr(`Please pick a new date and time — ${gone}.`); return; }
+    /* Guest count and venue type are what a vendor prices and plans against.
+       Optional, they arrived blank often enough that the vendor's first act was
+       to message the customer asking for them — so the request could not be
+       answered until a round trip had already happened. A caterer cannot quote
+       for "some people", and a DJ needs to know whether they are loading into a
+       ballroom or a back garden.
+
+       Venue type is skipped when a venue is in the cart, because then the venue
+       IS the answer and asking again would be nonsense. */
+    if (!String(eventGuests).trim()) {
+      setErr("How many guests are you expecting? Vendors need this to price your event."); return;
+    }
+    if (Number(String(eventGuests).replace(/[^0-9]/g, "")) <= 0) {
+      setErr("Please enter the number of guests as a number."); return;
+    }
+    if (!placeVendor && !String(venueType).trim()) {
+      setErr("Please choose the venue type so vendors know what kind of space they are coming to."); return;
+    }
     if (!placeVendor && !city.trim()) { setErr("Please add at least the event city so the vendor knows where to go."); return; }
     const busy = vendorsUnavailableOn(eventDate, startTime);
     if (busy.length) { setErr(conflictMessage(busy)); return; }
@@ -7491,7 +7514,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                     }} />
                   </div>
                   <div style={{ display:"grid", gridTemplateColumns: placeVendor ? "1fr" : "1fr 1fr", gap:8 }}>
-                    <input placeholder="Estimated guests" value={eventGuests}
+                    <input placeholder="Estimated guests *" value={eventGuests}
                       onChange={e => setEventGuests(e.target.value)}
                       style={{ height:40, padding:"0 12px", border:`1px solid ${C.border}`,
                                borderRadius:9, fontSize:13, background:"#fff" }} />
@@ -7500,7 +7523,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                       style={{ height:40, padding:"0 10px", border:`1px solid ${C.border}`,
                                borderRadius:9, fontSize:13, color: venueType ? C.black : C.lightGray,
                                background:"#fff" }}>
-                      <option value="">Venue type</option>
+                      <option value="">Venue type *</option>
                       {VENUE_TYPES.map(t => (
                         <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
                       ))}
@@ -9847,7 +9870,13 @@ function ServicesManager({ vendorId }) {
   async function addPhotos(e) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    if ((editing.photos.length + files.length) > 8) { setErr("Maximum 8 photos per service."); return; }
+    const roomLeft = MAX_PHOTOS - (editing.photos.length || 0);
+    if (files.length > roomLeft) {
+      setErr(roomLeft <= 0
+        ? `You already have ${MAX_PHOTOS} photos, the maximum. Remove one to add another.`
+        : `You can add ${roomLeft} more photo${roomLeft === 1 ? "" : "s"} — ${MAX_PHOTOS} is the maximum.`);
+      return;
+    }
     setUploading(true); setErr("");
     const session = await loadSession();
     const added = [];
@@ -10257,7 +10286,7 @@ function ServicesManager({ vendorId }) {
           <label style={L}>
             Photos for this service{" "}
             <span style={{ fontWeight:400, color:C.midGray }}>
-              — the first one is the cover customers see
+              ({(editing.photos || []).length}/{MAX_PHOTOS} — the first one is the cover customers see)
             </span>
           </label>
           <PhotoManager
@@ -10265,6 +10294,7 @@ function ServicesManager({ vendorId }) {
             onChange={(next) => setEditing(e => ({ ...e, photos: next }))}
             size={72} />
           <input type="file" accept="image/*" multiple onChange={addPhotos}
+            disabled={(editing.photos || []).length >= MAX_PHOTOS}
             style={{ fontSize:11, color:C.midGray }} />
           {uploading && <p style={{ fontSize:11, color:C.orange, margin:"4px 0 0" }}>Uploading…</p>}
 
@@ -10426,7 +10456,13 @@ function VendorListingEditor({ user, onClose, onSaved }) {
   async function addPhotos(e) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    if ((f.photos.length + files.length) > 8) { setErr("Maximum 8 photos."); return; }
+    const roomLeft = MAX_PHOTOS - (f.photos.length || 0);
+    if (files.length > roomLeft) {
+      setErr(roomLeft <= 0
+        ? `You already have ${MAX_PHOTOS} photos, the maximum. Remove one to add another.`
+        : `You can add ${roomLeft} more photo${roomLeft === 1 ? "" : "s"} — ${MAX_PHOTOS} is the maximum.`);
+      return;
+    }
     setUp(true); setErr("");
     const session = await loadSession();
     const token = session?.access_token;
@@ -10599,12 +10635,13 @@ function VendorListingEditor({ user, onClose, onSaved }) {
 
 
             {/* Photos */}
-            <label style={L}>Photos <span style={{fontWeight:400}}>({f.photos.length}/8 — first is the cover)</span></label>
+            <label style={L}>Photos <span style={{fontWeight:400}}>({f.photos.length}/{MAX_PHOTOS} — first is the cover)</span></label>
             <PhotoManager
               photos={f.photos}
               onChange={(next) => set("photos", next)}
               size={78} />
-            <input type="file" accept="image/*" multiple onChange={addPhotos} disabled={uploading}
+            <input type="file" accept="image/*" multiple onChange={addPhotos}
+              disabled={uploading || f.photos.length >= MAX_PHOTOS}
               style={{ fontSize:12 }} />
             {uploading && <p style={{ fontSize:11, color:C.midGray, margin:"6px 0 0" }}>Uploading…</p>}
             {!uploading && f.photos.length > 0 && (
@@ -11199,6 +11236,36 @@ function VendorDashboard({ user, onLogout }) {
      a vendor could see they had 5.0 stars and had no way to read why. */
   const [revs,     setRevs]     = useState([]);
 
+  /* Account settings. Vendors had no way to leave: deactivate and delete lived
+     only in the customer panel, which a vendor account never opens. Same two
+     RPCs, which already clear vendor_profiles and vendor_services, so a vendor
+     who leaves does not strand live listings on the marketplace. */
+  const [acctBusy,      setAcctBusy]      = useState(false);
+  const [acctErr,       setAcctErr]       = useState("");
+  const [confirmAction, setConfirmAction] = useState(null);  // null | "deactivate" | "delete"
+
+  async function doDeactivate() {
+    setAcctBusy(true); setAcctErr("");
+    const { error } = await sb.rpc("deactivate_my_account");
+    setAcctBusy(false);
+    if (error) { setConfirmAction(null); setAcctErr(error.message || "Could not deactivate your account."); return; }
+    onLogout();
+  }
+
+  async function doDeleteAccount() {
+    setAcctBusy(true); setAcctErr("");
+    const { error } = await sb.rpc("delete_my_account");
+    setAcctBusy(false);
+    if (error) {
+      setConfirmAction(null);
+      setAcctErr((error.message || "").indexOf("admin") >= 0
+        ? "Admin accounts cannot be deleted here. Remove admin access first."
+        : (error.message || "Could not delete your account."));
+      return;
+    }
+    onLogout();
+  }
+
   const reload = React.useCallback(async () => {
     setLoading(true);
     const [r, l, n, rv] = await Promise.all([
@@ -11248,7 +11315,8 @@ function VendorDashboard({ user, onLogout }) {
   );
 
   const TABS = [["overview","Overview"],["requests","Requests"],["inquiries","Messages"],["listing","My listing"],
-                ["reviews","Reviews"],["calendar","Availability"],["notifs","Notifications"]];
+                ["reviews","Reviews"],["calendar","Availability"],["notifs","Notifications"],
+                ["account","Account settings"]];
 
   return (
     <div className="plug" style={{ minHeight:"100vh", background:"#F7F8FA" }}>
@@ -11565,6 +11633,97 @@ function VendorDashboard({ user, onLogout }) {
                 </p>
                 <ServicesManager vendorId={user.id} />
               </div>
+            </div>
+          )}
+
+          {/* ACCOUNT SETTINGS — the only place these two live, deliberately.
+              Neither runs straight off its button: each opens the dialog below,
+              which spells out what is about to happen and asks a second time. */}
+          {tab === "account" && (
+            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
+              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Account settings</h3>
+              <p style={{ margin:"0 0 14px", fontSize:12, color:C.midGray }}>
+                Pause your business or close it down for good.
+              </p>
+
+              {acctErr && (
+                <p style={{ margin:"0 0 12px", fontSize:12, color:"#B91C1C", fontWeight:600 }}>{acctErr}</p>
+              )}
+
+              <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14 }}>
+                <p style={{ margin:0, fontSize:13, fontWeight:800 }}>Deactivate my account</p>
+                <p style={{ margin:"3px 0 9px", fontSize:11.5, color:C.midGray, lineHeight:1.6 }}>
+                  Your listings come off the marketplace and customers can no longer find or book you.
+                  Nothing is deleted — log back in any time to pick up where you left off.
+                </p>
+                <button type="button" onClick={() => { setAcctErr(""); setConfirmAction("deactivate"); }}
+                  disabled={acctBusy} className="btn"
+                  style={{ background:"#fff", color:C.black, border:`1.5px solid ${C.border}`,
+                           borderRadius:10, padding:"9px 16px", fontSize:12.5, fontWeight:700,
+                           cursor: acctBusy ? "default" : "pointer" }}>
+                  Deactivate account
+                </button>
+              </div>
+
+              <div style={{ borderTop:`1px solid ${C.border}`, marginTop:16, paddingTop:14 }}>
+                <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#B91C1C" }}>Delete my account</p>
+                <p style={{ margin:"3px 0 9px", fontSize:11.5, color:C.midGray, lineHeight:1.6 }}>
+                  Permanent. Your business profile, every listing, your photos and your booking history
+                  are removed and cannot be recovered.
+                </p>
+                <button type="button" onClick={() => { setAcctErr(""); setConfirmAction("delete"); }}
+                  disabled={acctBusy} className="btn"
+                  style={{ background:"#B91C1C", color:"#fff", border:"none",
+                           borderRadius:10, padding:"9px 16px", fontSize:12.5, fontWeight:700,
+                           cursor: acctBusy ? "default" : "pointer" }}>
+                  Delete account
+                </button>
+              </div>
+
+              {/* Confirmation. Deliberately not window.confirm: that cannot say
+                  what is about to happen in any detail and reads like a scam
+                  prompt. */}
+              {confirmAction && (() => {
+                const isDelete = confirmAction === "delete";
+                return (
+                  <div role="dialog" aria-modal="true"
+                    style={{ position:"fixed", inset:0, zIndex:900, background:"rgba(0,0,0,0.45)",
+                             display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+                    onClick={() => !acctBusy && setConfirmAction(null)}>
+                    <div onClick={(e) => e.stopPropagation()}
+                      style={{ background:"#fff", borderRadius:16, maxWidth:430, width:"100%",
+                               padding:"20px 22px", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+                      <p style={{ margin:0, fontSize:16, fontWeight:800,
+                                  color: isDelete ? "#B91C1C" : C.black }}>
+                        {isDelete ? "Delete your account for good?" : "Deactivate your account?"}
+                      </p>
+                      <p style={{ margin:"9px 0 0", fontSize:12.5, color:C.midGray, lineHeight:1.65 }}>
+                        {isDelete
+                          ? "This cannot be undone. Your business profile, all of your listings and photos, and your booking history will be permanently deleted. Customers with a confirmed booking will lose the record of it."
+                          : "Your listings will be hidden from the marketplace straight away and customers will not be able to book you. Your data is kept, and logging back in reactivates everything."}
+                      </p>
+                      <p style={{ margin:"12px 0 0", fontSize:12, color:C.midGray }}>
+                        You will be signed out {isDelete ? "immediately." : "and can return whenever you like."}
+                      </p>
+                      <div style={{ display:"flex", gap:8, marginTop:18, justifyContent:"flex-end" }}>
+                        <button type="button" onClick={() => setConfirmAction(null)} disabled={acctBusy}
+                          className="btn"
+                          style={{ background:"#F3F4F6", color:C.black, border:"none", borderRadius:10,
+                                   padding:"10px 16px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                          Keep my account
+                        </button>
+                        <button type="button" onClick={isDelete ? doDeleteAccount : doDeactivate}
+                          disabled={acctBusy} className="btn"
+                          style={{ background: isDelete ? "#B91C1C" : C.black, color:"#fff", border:"none",
+                                   borderRadius:10, padding:"10px 16px", fontSize:13, fontWeight:700,
+                                   opacity: acctBusy ? 0.6 : 1, cursor: acctBusy ? "default" : "pointer" }}>
+                          {acctBusy ? "Working…" : isDelete ? "Yes, delete everything" : "Yes, deactivate"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
