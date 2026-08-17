@@ -12048,10 +12048,27 @@ export default function PlugApp() {
   const subs = CAT_SUBS[activeCat];
   const subObj = subs?.find(s=>s.id===activeSub);
   const catObj = CATEGORIES.find(c=>c.id===activeCat);
-  const showSubGrid = subs && !activeSub && !search && activeCat !== "build";
+  const showSubGrid = subs && !activeSub && !q && activeCat !== "build";
 
   /* The nav is transparent only when on the hero (all, no search, no vendor page) */
-  const isHero = activeCat === "all" && !search && !vendorPage;
+  /* `search` is what is in the box. `q` is what the page ACTS on, and it stays
+     empty until there are at least two characters.
+
+     Without that threshold the very first letter tore the page apart: `search`
+     went non-empty, `isHero` flipped false, the hero collapsed and the results
+     view slammed in — after ONE keystroke, before anyone had typed a word. The
+     search box lives inside the hero, so it was destroyed mid-type and the rest
+     of the letters went nowhere.
+
+     Two characters is also the point below which a substring match is useless:
+     "a" matches almost every listing, so the jump bought nothing and cost the
+     person their place. Everything the customer sees still reflects `search`,
+     so typing feels immediate; only the filtering and the layout switch wait
+     for `q`. */
+  const MIN_SEARCH = 2;
+  const q = search.trim().length >= MIN_SEARCH ? search.trim() : "";
+
+  const isHero = activeCat === "all" && !q && !vendorPage;
 
   /* Keeping the box on screen is only half of it: the hero input and the
      sticky-bar input are two different DOM nodes, so React unmounts one and
@@ -12061,7 +12078,7 @@ export default function PlugApp() {
      handover is invisible to the person typing. */
   const wasHero = useRef(isHero);
   useEffect(() => {
-    if (wasHero.current && !isHero && search) {
+    if (wasHero.current && !isHero && q) {
       const el = searchRef.current;
       if (el && document.activeElement !== el) {
         el.focus();
@@ -12070,7 +12087,7 @@ export default function PlugApp() {
       }
     }
     wasHero.current = isHero;
-  }, [isHero, search]);
+  }, [isHero, q]);
   const navOnHero = isHero && !navScrolled;
 
   function pickCat(id) {
@@ -12204,7 +12221,7 @@ export default function PlugApp() {
         const liveNoSub = v.isLive && vSubs.length === 0;
         if (!(subMatch || tagMatch || liveNoSub)) return false;
       }
-      if (search && !`${v.name} ${v.type} ${v.blurb} ${(v.tags||[]).join(" ")}`.toLowerCase().includes(search.toLowerCase())) return false;
+      if (q && !`${v.name} ${v.type} ${v.blurb} ${(v.tags||[]).join(" ")}`.toLowerCase().includes(q.toLowerCase())) return false;
       /* Customer criteria — only show vendors who actually fit */
       if (!matchesWhere(v, qWhere))   return false;
       if (!matchesWhen(v, qWhen))     return false;
@@ -12230,7 +12247,7 @@ export default function PlugApp() {
     if (sortBy === "newest")  return [...list].sort((a,b)=>(b.yearsInBiz||0)-(a.yearsInBiz||0));
     /* Keep live listings visible near the top so new vendors get discovered. */
     return [...list].sort((a,b)=>((b.feat?1:0)+(b.isLive?1:0))-((a.feat?1:0)+(a.isLive?1:0)));
-  }, [activeCat, activeSub, search, sortBy, filters, activePackage, dbVendors, qWhere, qWhen, qGuests, qEventType, availByVendor]);
+  }, [activeCat, activeSub, q, sortBy, filters, activePackage, dbVendors, qWhere, qWhen, qGuests, qEventType, availByVendor]);
 
   /* Smart recommendations — vendors missing from cart for this event package */
   const recs = useMemo(() => getRecommendations(cart, activePackage, VENDORS), [cart, activePackage]);
@@ -12496,7 +12513,7 @@ export default function PlugApp() {
           this bar did not take over either: the page was left with no search
           field at all. One character went in, the box vanished, and the rest of
           the word went nowhere. */}
-      {(navScrolled || search) && activeCat !== "build" && !vendorPage && (
+      {(navScrolled || q) && activeCat !== "build" && !vendorPage && (
         <div style={{ position:"sticky", top:64, zIndex:190,
                       background:"rgba(255,255,255,0.97)", backdropFilter:"blur(20px)",
                       borderBottom:`1px solid ${C.border}`,
@@ -12812,7 +12829,7 @@ export default function PlugApp() {
           )}
 
 
-          {isHero && !search && !activePackage && activeCat === "all" && !vendorPage && (
+          {isHero && !q && !activePackage && activeCat === "all" && !vendorPage && (
             <HowItWorks />
           )}
 
@@ -12904,7 +12921,7 @@ export default function PlugApp() {
           )}
 
           {/* ── INFO CARDS (home) ─────────────────────────────────────── */}
-          {isHero && activeCat==="all" && !search && (
+          {isHero && activeCat==="all" && !q && (
             <div style={{ marginTop:48, borderTop:`1px solid ${C.border}`, paddingTop:40 }}>
               <h2 style={{ fontSize:22, fontWeight:800, margin:"0 0 24px", letterSpacing:"-0.03em" }}>Get more from PLUG</h2>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:16 }}>
