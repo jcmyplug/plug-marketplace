@@ -2481,6 +2481,9 @@ async function saveRequest(req) {
     state: req.state || null, zip_code: req.zip || null,
     start_time: req.startTime || null, end_time: req.endTime || null,
     end_date: req.endDate || null,
+    /* Only sent when the customer actually chose one. Null means the database
+       default — 120 hours / 5 days — which is what every request used to get. */
+    ...(req.responseDeadlineHours ? { response_deadline_hours: req.responseDeadlineHours } : {}),
     access_instructions: req.accessInstructions || null,
     /* Strict === true: anything ambiguous is recorded as unverified, because
        wrongly telling a vendor an address is confirmed is the costly error. */
@@ -7191,6 +7194,41 @@ function EventPackagesPage({ onSelectPackage, onPickCat }) {
 }
 
 /* ─── CART PANEL (upgraded with event details) ────────────────────────────────── */
+/* ─── RESPONSE DEADLINE ───────────────────────────────────────────────────────
+   How long the customer is willing to wait for a vendor's answer. The choice
+   only ever TIGHTENS the deadline — the server clamps it to the 5-day ceiling
+   (booking_response_deadline_hours) and the "cancel 24 hours before the event"
+   rule still sits underneath, so what actually applies is whichever comes
+   first. Sending nothing means the old 5-day default, unchanged.            */
+const RESPONSE_DEADLINE_OPTIONS = [
+  { hours: 24,  label: "Within 24 hours", tag: "urgent"  },
+  { hours: 48,  label: "Within 2 days",   tag: ""        },
+  { hours: 120, label: "Within 5 days",   tag: "no rush" },
+];
+
+/* THE thresholds. They exist in exactly one other place — the SQL function
+   public.suggested_response_deadline_hours(date). Change the two together. */
+function suggestedResponseDeadlineHours(eventDate) {
+  if (!eventDate) return 120;
+  const day = 86400000;
+  const days = Math.round(
+    (new Date(eventDate + "T00:00:00") - new Date(isoDate(new Date()) + "T00:00:00")) / day);
+  if (days <   7) return 24;    // under a week away
+  if (days <= 30) return 48;    // a week to a month
+  return 120;                   // further out
+}
+
+/* A deadline that lands after PLUG would have cancelled the request anyway
+   (24 hours before the event) is a promise the platform cannot keep, so it is
+   never put in front of the customer. */
+function offerableDeadlineOptions(eventDate, startTime) {
+  if (!eventDate) return RESPONSE_DEADLINE_OPTIONS;
+  const start = new Date(`${eventDate}T${startTime || "00:00"}:00`);
+  if (isNaN(start.getTime())) return RESPONSE_DEADLINE_OPTIONS;
+  const hoursLeft = (start.getTime() - 24 * 3600000 - Date.now()) / 3600000;
+  return RESPONSE_DEADLINE_OPTIONS.filter(o => o.hours <= hoursLeft);
+}
+
 function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthModal, budget, onSetBudget, initialDetails, onDetailsChange, availByVendor }) {
   /* Unavailable dates per vendor in the cart — blocked days the vendor marked
      off, plus days they already have a confirmed booking. Customers must not
@@ -7273,6 +7311,20 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
   const [startTime,  setStartTime]  = useState(initialDetails?.startTime || "");
   const [endTime,    setEndTime]    = useState(initialDetails?.endTime || "");
   const [access,     setAccess]     = useState(initialDetails?.access || "");
+  /* How fast the customer needs an answer, in hours. */
+  const [deadlineHours, setDeadlineHours] =
+    useState(() => suggestedResponseDeadlineHours(initialDetails?.eventDate || ""));
+  /* The suggestion is a function of how close the event is, so it is re-made
+     whenever the event date moves — a "no rush" picked for a date six months
+     out means nothing once the event becomes next week. */
+  useEffect(() => { setDeadlineHours(suggestedResponseDeadlineHours(eventDate)); }, [eventDate]);
+  const deadlineOptions = offerableDeadlineOptions(eventDate, startTime);
+  /* Never submit a deadline that is not on offer. When the event is so close
+     that none of them can be honoured, send nothing at all and let the
+     24-hours-before-the-event rule own the request by itself. */
+  const deadlineChoice = deadlineOptions.some(o => o.hours === deadlineHours)
+    ? deadlineHours
+    : (deadlineOptions.length ? deadlineOptions[deadlineOptions.length - 1].hours : null);
   const [submitting, setSubmitting] = useState(false);
   const [err,        setErr]        = useState("");
 
@@ -7381,6 +7433,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                     : (eventType || "Event"),
       eventDate,
       endDate: endSameDay ? "" : endDate,
+      responseDeadlineHours: deadlineChoice,
       guests:     eventGuests,
       venue:      loc.venue,               // venue name
       venueType:  loc.venueType,
@@ -7782,6 +7835,42 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                              background:"#fff" }} />
                 </div>
               </div>
+
+              {/* ── How soon do you need an answer? ────────────────────────
+                  Only ever tightens the deadline. Options that would land
+                  after PLUG cancels the request anyway are not shown.     */}
+              {deadlineOptions.length > 0 && (
+                <div style={{ padding:"10px 0", borderTop:`1px solid ${C.border}`, marginBottom:4 }}>
+                  <label style={{ fontSize:11, fontWeight:700, color:C.black, display:"block", marginBottom:6 }}>
+                    ⏱️ How soon do you need an answer?
+                  </label>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }} role="radiogroup"
+                       aria-label="How soon do you need an answer?">
+                    {deadlineOptions.map(o => {
+                      const on = o.hours === deadlineChoice;
+                      return (
+                        <button key={o.hours} type="button" role="radio" aria-checked={on}
+                          onClick={() => setDeadlineHours(o.hours)}
+                          style={{ flex:"1 1 28%", padding:"8px 10px", borderRadius:10, cursor:"pointer",
+                                   border:`1.5px solid ${on ? C.orange : C.border}`,
+                                   background: on ? "#FFF7ED" : "#fff",
+                                   color: on ? C.black : C.midGray,
+                                   fontSize:11, fontWeight: on ? 800 : 600, textAlign:"center",
+                                   fontFamily:"'Inter',sans-serif", transition:"all .15s" }}>
+                          {o.label}
+                          {o.tag && (
+                            <span style={{ display:"block", fontSize:9, fontWeight:600, marginTop:1,
+                                           color: on ? C.orange : C.lightGray }}>{o.tag}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p style={{ fontSize:10, color:C.lightGray, marginTop:6, lineHeight:1.5 }}>
+                    If nobody replies by then, the request closes and you can book someone else.
+                  </p>
+                </div>
+              )}
 
               {err && <p style={{ fontSize:12, color:"#EF4444", fontWeight:600, marginBottom:8 }}>{err}</p>}
 
