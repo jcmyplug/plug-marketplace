@@ -12891,6 +12891,27 @@ export default function PlugApp() {
               placeholder="Guests"
               style={{ width:"100%", border:"none", outline:"none", fontSize:13, background:"transparent" }} />
           </div>
+          {/* The filters apply as you type, so this button changes no results —
+              and that is exactly why it has to exist. Filling in five fields and
+              being offered nothing but "Clear" reads as an unfinished form:
+              people sit there waiting for something to happen, or hunt for the
+              submit button that was never there. Every booking site has one.
+
+              Its real job is to take you to the answer. The matches are below
+              the fold behind the hero, so it scrolls them into view — which is
+              what the person was expecting the button to do anyway. */}
+          <button onClick={() => {
+              pickCat("all");
+              requestAnimationFrame(() => {
+                const el = document.getElementById("results-top");
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }} className="btn"
+            style={{ border:"none", background:C.orange, color:"#fff", borderRadius:10,
+                     padding:"0 20px", fontSize:12.5, fontWeight:800, whiteSpace:"nowrap",
+                     boxShadow:C.shadowButton, cursor:"pointer" }}>
+            🔍 Search
+          </button>
           {(qWhere || qWhen || qGuests || qEventType) && (
             <button onClick={()=>{setQWhere("");setQWhen("");setQGuests("");setQEventType("");}} className="btn"
               style={{ border:`1px solid ${C.border}`, background:"#fff", borderRadius:10,
@@ -13243,7 +13264,7 @@ export default function PlugApp() {
               ("3 vendors in Food & Drinks") tells you what is there before you
               commit to a sub-category. */}
           {activeCat !== "build" && (
-            <div className="fade-up" ref={vendorGridRef}>
+            <div className="fade-up" id="results-top" ref={vendorGridRef}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
                 <p style={{ fontSize:13, color:C.midGray, margin:0, fontWeight:500 }}>
                   <strong style={{ color:C.black, fontWeight:700 }}>{filtered.length}</strong> vendor{filtered.length!==1?"s":""}
