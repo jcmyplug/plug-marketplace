@@ -1,0 +1,43 @@
+name: CI
+
+# Three bugs reached production in one week that a linter would have caught for
+# free: two "Cannot access 'x' before initialization" crashes (one of them live
+# for over a week) plus undefined-identifier risks in a single 13k-line
+# component. Every push and every pull request now gets linted and built before
+# anyone sees it.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-build:
+    name: Lint and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # There is no package-lock.json in the repo yet, so npm ci cannot run.
+      # Swap this for npm ci (and add cache: npm above) once a lockfile lands.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Any ESLint error fails the job. The rule that matters most here is
+      # no-use-before-define (configured in package.json > eslintConfig): it is
+      # what catches the "Cannot access 'x' before initialization" crashes.
+      - name: Lint src/
+        run: npm run lint
+
+      # Second safety net: the same production build Vercel runs. CI=true makes
+      # Create React App treat build warnings as errors as well.
+      - name: Production build
+        run: npm run build
+        env:
+          CI: true
