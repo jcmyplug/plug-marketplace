@@ -12258,9 +12258,12 @@ export default function PlugApp() {
   const subs = CAT_SUBS[activeCat];
   const subObj = subs?.find(s=>s.id===activeSub);
   const catObj = CATEGORIES.find(c=>c.id===activeCat);
-  const showSubGrid = subs && !activeSub && !q && activeCat !== "build";
-
-  /* The nav is transparent only when on the hero (all, no search, no vendor page) */
+  /* Declared BEFORE showSubGrid, which is its first consumer. It used to sit
+     18 lines lower, and the only reason that was survivable is that
+     `subs && !activeSub && !q` short-circuits: on the home page `subs` is
+     falsy so `q` was never evaluated. Clicking a category with
+     subcategories made `subs` truthy, `!q` was reached, and the whole page
+     died with a temporal-dead-zone ReferenceError. */
   /* `search` is what is in the box. `q` is what the page ACTS on, and it stays
      empty until there are at least two characters.
 
@@ -12277,6 +12280,9 @@ export default function PlugApp() {
      for `q`. */
   const MIN_SEARCH = 2;
   const q = search.trim().length >= MIN_SEARCH ? search.trim() : "";
+  const showSubGrid = subs && !activeSub && !q && activeCat !== "build";
+
+  /* The nav is transparent only when on the hero (all, no search, no vendor page) */
 
   const isHero = activeCat === "all" && !q && !vendorPage;
 
