@@ -2242,7 +2242,6 @@ function dbServiceToCard(s, v) {
     bizAddress:  v.biz_address || "",
     bizZip:      v.biz_zip || "",
     serviceAreas:s.service_areas || v.service_areas || "",
-    schedule:    v.schedule || "",
     eventTypes:  parseEventTypes(v.event_types),
     highlights:  [],
   };
@@ -2430,7 +2429,7 @@ async function saveRequest(req) {
       userName: req.userName, vendorName: req.vendorName,
       eventType: req.eventType, eventDate: req.eventDate,
       venueType: req.venueType, streetAddress: req.streetAddress,
-      addressLine2: req.addressLine2, city: req.city, state: req.state,
+      addressLine2: req.addressLine2,
       addressVerified: req.addressVerified === true,
       zip: req.zip, startTime: req.startTime, endTime: req.endTime,
       accessInstructions: req.accessInstructions,
@@ -13285,7 +13284,7 @@ export default function PlugApp() {
               <FiltersBar filters={filters} onChange={updateFilter} totalCount={filtered.length} />
 
               {/* Recommendations strip */}
-              <RecommendationStrip recs={recs} onAdd={addToCart} onView={(vv)=>setVendorPage(vv||v)} cart={cart} />
+              <RecommendationStrip recs={recs} onAdd={addToCart} onView={(vv)=>setVendorPage(vv||null)} cart={cart} />
 
               {/* Vendor grid */}
               <div className="vendor-grid"
