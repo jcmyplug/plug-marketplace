@@ -10,7 +10,33 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test"
+    "test": "react-scripts test",
+    "lint": "eslint src --ext .js,.jsx"
+  },
+  "eslintConfig": {
+    "root": true,
+    "env": { "browser": true, "es2021": true, "node": true, "jest": true },
+    "parserOptions": {
+      "ecmaVersion": "latest",
+      "sourceType": "module",
+      "ecmaFeatures": { "jsx": true }
+    },
+    "rules": {
+      "no-use-before-define": ["error", { "functions": false, "classes": true, "variables": false }],
+      "no-unreachable": "error",
+      "no-const-assign": "error",
+      "no-dupe-args": "error",
+      "no-redeclare": "error",
+      "no-func-assign": "error",
+      "no-obj-calls": "error",
+      "no-self-assign": "error",
+      "no-duplicate-case": "error",
+      "no-cond-assign": "error",
+      "no-unsafe-negation": "error",
+      "no-unsafe-optional-chaining": "error",
+      "use-isnan": "error",
+      "valid-typeof": "error"
+    }
   },
   "browserslist": {
     "production": [">0.2%", "not dead", "not op_mini all"],
