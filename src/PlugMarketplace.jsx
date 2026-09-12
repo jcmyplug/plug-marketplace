@@ -1970,6 +1970,16 @@ async function getApprovedVendors() {
 
 /* ── Vendor services (many per vendor) ───────────────────────────────────── */
 
+/* A guest count on its way to the database: a whole number, or null for "not
+   stated". Blank and unparseable both mean not stated — 0 does not, so this
+   cannot be the usual `parseInt(x) || null`, which would quietly discard a
+   legitimate minimum of 0. */
+function toGuestCount(x) {
+  if (x === "" || x == null) return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
 /* Every service belonging to this vendor, including inactive ones. */
 async function getMyServices(vendorId) {
   if (IS_PREVIEW) return [];
@@ -1995,7 +2005,11 @@ async function saveService(vendorId, svc) {
     service_type: svc.service_type || null,
     description:  svc.description || null,
     price_value:  svc.price_value === "" || svc.price_value == null ? null : Number(svc.price_value),
-    capacity:     svc.capacity || null,
+    /* Capacity is a range, not a sentence. `capacity` itself is deliberately
+       NOT sent: a database trigger derives that text from these two numbers,
+       so the label and the numbers can never drift apart. */
+    capacity_min: toGuestCount(svc.capacity_min),
+    capacity_max: toGuestCount(svc.capacity_max),
     photos:       svc.photos || [],
     /* Keep incomplete options — they stay private until priced. */
     packages:     parsePackages(svc.packages),
@@ -2217,12 +2231,17 @@ function dbServiceToCard(s, v) {
     yearsInBiz:  v.years_in_biz || 0,
     travelMiles: (s.travel_miles != null ? s.travel_miles : v.travel_miles) || 0,
     capacity:    s.capacity || v.capacity || "",
+    /* The numbers behind that label. A listing row always carries the pair, so
+       `capacityKnown` is true even when both are null — which means "no stated
+       limit", and is a different thing from a card that never had the columns. */
+    capacityMin: s.capacity_min != null ? s.capacity_min : null,
+    capacityMax: s.capacity_max != null ? s.capacity_max : null,
+    capacityKnown: Object.prototype.hasOwnProperty.call(s, "capacity_max"),
     bizCity:     v.biz_city || "",
     bizState:    v.biz_state || "",
     bizAddress:  v.biz_address || "",
     bizZip:      v.biz_zip || "",
     serviceAreas:s.service_areas || v.service_areas || "",
-    schedule:    v.schedule || "",
     eventTypes:  parseEventTypes(v.event_types),
     highlights:  [],
   };
@@ -2410,7 +2429,7 @@ async function saveRequest(req) {
       userName: req.userName, vendorName: req.vendorName,
       eventType: req.eventType, eventDate: req.eventDate,
       venueType: req.venueType, streetAddress: req.streetAddress,
-      addressLine2: req.addressLine2, city: req.city, state: req.state,
+      addressLine2: req.addressLine2,
       addressVerified: req.addressVerified === true,
       zip: req.zip, startTime: req.startTime, endTime: req.endTime,
       accessInstructions: req.accessInstructions,
@@ -9955,7 +9974,7 @@ function ServicesManager({ vendorId }) {
   const [uploading,setUploading]= useState(false);
 
   const blank = { category:"food", subcategory:"", subcategories:[], name:"", service_type:"", description:"",
-                  price_value:"", capacity:"", photos:[], packages:[], active:true, offsite:false, travel_miles:"", service_areas:"", addons:[], avail_days:[], avail_blocks:[], max_per_day:1, gap_hours:2, simultaneous:false, min_notice_hours:0 };
+                  price_value:"", capacity_min:"", capacity_max:"", photos:[], packages:[], active:true, offsite:false, travel_miles:"", service_areas:"", addons:[], avail_days:[], avail_blocks:[], max_per_day:1, gap_hours:2, simultaneous:false, min_notice_hours:0 };
 
   async function load() {
     setLoading(true);
@@ -9991,7 +10010,10 @@ function ServicesManager({ vendorId }) {
       name: s.name || "",
       service_type: s.service_type || "",
       description: s.description || "",
-      capacity: s.capacity || "",
+      /* Held as strings so the inputs can be genuinely empty — "" means the
+         vendor stated nothing, which is not the same as 0. */
+      capacity_min: s.capacity_min != null ? String(s.capacity_min) : "",
+      capacity_max: s.capacity_max != null ? String(s.capacity_max) : "",
     } : { ...blank });
   }
 
@@ -10031,6 +10053,23 @@ function ServicesManager({ vendorId }) {
 
   async function save() {
     if (!editing.description.trim()) { setErr("Please describe this service."); return; }
+    /* Capacity is two optional numbers. Blank is allowed and meaningful, but a
+       value that is there has to make sense, and the pair has to agree — the
+       database enforces the same three rules, so catching them here is only
+       about giving the vendor a sentence instead of a constraint name. */
+    const capMinRaw = String(editing.capacity_min ?? "").trim();
+    const capMaxRaw = String(editing.capacity_max ?? "").trim();
+    const capMin = capMinRaw === "" ? null : Number(capMinRaw);
+    const capMax = capMaxRaw === "" ? null : Number(capMaxRaw);
+    if (capMin !== null && (!Number.isInteger(capMin) || capMin < 0)) {
+      setErr("Minimum guests must be a whole number, 0 or more — or leave it blank."); return;
+    }
+    if (capMax !== null && (!Number.isInteger(capMax) || capMax < 1)) {
+      setErr("Maximum guests must be a whole number of 1 or more — or leave it blank for no limit."); return;
+    }
+    if (capMin !== null && capMax !== null && capMin > capMax) {
+      setErr(`Your minimum (${capMin}) is larger than your maximum (${capMax}). Swap them, or clear one.`); return;
+    }
     setBusy(true);
     const res = await saveService(vendorId, editing);
     setBusy(false);
@@ -10217,16 +10256,29 @@ function ServicesManager({ vendorId }) {
                 onChange={e => setField("price_value", e.target.value)} placeholder="Blank = contact us" />
             </div>
             <div style={{ flex:1 }}>
-              <label style={L}>Capacity for this listing</label>
-              <select style={F} value={editing.capacity || ""}
-                onChange={e => setField("capacity", e.target.value)}>
-                <option value="">Select…</option>
-                {["1–25 people","25–50 people","50–100 people","100–200 people","200–300 people",
-                  "300–500 people","500–1000 people","1000+ people","Flexible / no limit"]
-                  .map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <label style={L}>Guest capacity</label>
+              <div style={{ display:"flex", gap:8 }}>
+                <input style={F} type="number" min="0" step="1" inputMode="numeric"
+                  value={editing.capacity_min ?? ""}
+                  onChange={e => setField("capacity_min", e.target.value)}
+                  placeholder="Min (optional)" aria-label="Minimum guests (optional)" />
+                <input style={F} type="number" min="1" step="1" inputMode="numeric"
+                  value={editing.capacity_max ?? ""}
+                  onChange={e => setField("capacity_max", e.target.value)}
+                  placeholder="Max" aria-label="Maximum guests" />
+              </div>
             </div>
           </div>
+
+          {/* These two numbers decide which searches you appear in and which
+              requests you are allowed to accept, so they are worth getting
+              right — this is why the old free-text box is gone. */}
+          <p style={{ margin:"6px 0 0", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
+            <strong>Minimum guests</strong> is optional — set it only if you turn down events below a
+            certain size. <strong>Leave the maximum blank if you have no limit</strong>; blank means
+            no limit, not zero. Customers searching for a headcount outside this range won't see
+            this listing, and you won't be able to accept a request outside it.
+          </p>
 
           {/* Off-site availability — key for venues whose sub-services (decor,
               sound, DJs, catering…) can also travel to other events. */}
@@ -12468,19 +12520,42 @@ export default function PlugApp() {
     return tokens.length > 0 && tokens.every(t => haystack.includes(t));
   }
 
+  /* The capacity range behind a card.
+     Listings carry capacity_min/capacity_max and are authoritative — both null
+     there is a real answer ("no stated limit"), not missing data. Business-level
+     profile cards and the demo catalog never had those columns, so for them we
+     still read the largest number out of the free text, which is the old guess
+     and is all they have. `known` says which of the two we got. */
+  function capacityBounds(v) {
+    if (v && v.capacityKnown) {
+      return {
+        min: v.capacityMin != null ? Number(v.capacityMin) : null,
+        max: v.capacityMax != null ? Number(v.capacityMax) : null,
+        known: true,
+      };
+    }
+    const nums = String((v && v.capacity) || "").match(/\d[\d,]*/g);
+    if (!nums || !nums.length) return { min: null, max: null, known: false };
+    const parsed = nums.map(x => parseInt(x.replace(/,/g, ""), 10)).filter(x => x > 0);
+    if (!parsed.length) return { min: null, max: null, known: false };
+    return { min: null, max: Math.max(...parsed), known: true };
+  }
+
   /* Can this vendor handle the requested headcount?
-     capacity is text like "50–300 guests" / "200+ people" — we read the
-     largest number as the ceiling. Per the search rule, a live vendor whose
-     capacity is missing or unreadable is hidden when a headcount is entered,
-     since they haven't shown they can host that many. Demo vendors are exempt. */
+     A match needs the headcount at or below the maximum (or no maximum stated)
+     AND at or above the minimum (or no minimum stated) — a caterer with a
+     50-person minimum is not a match for 10. Per the search rule, a live vendor
+     whose capacity is missing or unreadable is hidden when a headcount is
+     entered, since they haven't shown they can host that many. Demo vendors are
+     exempt. */
   function matchesGuests(v, guests) {
     const n = parseInt(guests, 10);
     if (!n || n <= 0) return true;
-    const nums = String(v.capacity || "").match(/\d[\d,]*/g);
-    if (!nums || !nums.length) return v.isLive ? false : true;
-    const max = Math.max(...nums.map(x => parseInt(x.replace(/,/g, ""), 10)));
-    if (!max) return v.isLive ? false : true;
-    return n <= max;
+    const cap = capacityBounds(v);
+    if (!cap.known) return v.isLive ? false : true;
+    if (cap.max != null && n > cap.max) return false;
+    if (cap.min != null && n < cap.min) return false;
+    return true;
   }
 
   /* Is this vendor free (and working) on the requested date?
@@ -12815,6 +12890,27 @@ export default function PlugApp() {
               placeholder="Guests"
               style={{ width:"100%", border:"none", outline:"none", fontSize:13, background:"transparent" }} />
           </div>
+          {/* The filters apply as you type, so this button changes no results —
+              and that is exactly why it has to exist. Filling in five fields and
+              being offered nothing but "Clear" reads as an unfinished form:
+              people sit there waiting for something to happen, or hunt for the
+              submit button that was never there. Every booking site has one.
+
+              Its real job is to take you to the answer. The matches are below
+              the fold behind the hero, so it scrolls them into view — which is
+              what the person was expecting the button to do anyway. */}
+          <button onClick={() => {
+              pickCat("all");
+              requestAnimationFrame(() => {
+                const el = document.getElementById("results-top");
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }} className="btn"
+            style={{ border:"none", background:C.orange, color:"#fff", borderRadius:10,
+                     padding:"0 20px", fontSize:12.5, fontWeight:800, whiteSpace:"nowrap",
+                     boxShadow:C.shadowButton, cursor:"pointer" }}>
+            🔍 Search
+          </button>
           {(qWhere || qWhen || qGuests || qEventType) && (
             <button onClick={()=>{setQWhere("");setQWhen("");setQGuests("");setQEventType("");}} className="btn"
               style={{ border:`1px solid ${C.border}`, background:"#fff", borderRadius:10,
@@ -13167,7 +13263,7 @@ export default function PlugApp() {
               ("3 vendors in Food & Drinks") tells you what is there before you
               commit to a sub-category. */}
           {activeCat !== "build" && (
-            <div className="fade-up" ref={vendorGridRef}>
+            <div className="fade-up" id="results-top" ref={vendorGridRef}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
                 <p style={{ fontSize:13, color:C.midGray, margin:0, fontWeight:500 }}>
                   <strong style={{ color:C.black, fontWeight:700 }}>{filtered.length}</strong> vendor{filtered.length!==1?"s":""}
@@ -13188,7 +13284,7 @@ export default function PlugApp() {
               <FiltersBar filters={filters} onChange={updateFilter} totalCount={filtered.length} />
 
               {/* Recommendations strip */}
-              <RecommendationStrip recs={recs} onAdd={addToCart} onView={(vv)=>setVendorPage(vv||v)} cart={cart} />
+              <RecommendationStrip recs={recs} onAdd={addToCart} onView={(vv)=>setVendorPage(vv||null)} cart={cart} />
 
               {/* Vendor grid */}
               <div className="vendor-grid"

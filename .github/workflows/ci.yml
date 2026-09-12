@@ -1,0 +1,63 @@
+name: CI
+
+# Three bugs reached production in one week that a linter would have caught for
+# free: two "Cannot access 'x' before initialization" crashes (one of them live
+# for over a week) plus undefined-identifier risks in a single 13k-line
+# component. Every push and every pull request now gets linted and built before
+# anyone sees it.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-build:
+    name: Lint and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # There is no package-lock.json in the repo yet, so npm ci cannot run.
+      # Swap this for npm ci (and add cache: npm above) once a lockfile lands.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Any ESLint error fails the job. The rule that matters most here is
+      # no-use-before-define (configured in package.json > eslintConfig): it is
+      # what catches the "Cannot access 'x' before initialization" crashes.
+      #
+      # Notes on the rule set, so nobody has to rediscover this:
+      #  * no-use-before-define runs with variables: false. It still reports a
+      #    const used earlier in the SAME scope, which is the shape of both
+      #    production crashes, while allowing the legitimate pattern of a
+      #    callback using a ref that is declared further down the component.
+      #    With variables: true the only hit in src/ is that benign pattern
+      #    (searchRef, used in the keyboard-shortcut effect, declared later).
+      #  * react-hooks/exhaustive-deps is deliberately not enabled. It could
+      #    only be a warning (13 hits, mostly intentional single-run effects),
+      #    and CI=true below turns warnings into build failures, so a warning
+      #    would break this job and the Vercel build too.
+      #  * no-undef and no-dupe-keys are not on yet: src/PlugMarketplace.jsx
+      #    has four pre-existing violations - an undefined v in the
+      #    RecommendationsStrip onView handler (~line 13288, a live crash when
+      #    its argument is falsy) and three duplicate object keys (~2245,
+      #    ~2433). Fix those four and turn both rules on.
+      #  * extends: react-app is not used. Turning it on today would fail the
+      #    build with ~30 errors (25 react-hooks/rules-of-hooks, 4
+      #    no-restricted-globals for bare location/history, 1 no-undef).
+      - name: Lint src/
+        run: npm run lint
+
+      # Second safety net: the same production build Vercel runs. CI=true makes
+      # Create React App treat build warnings as errors as well.
+      - name: Production build
+        run: npm run build
+        env:
+          CI: true
