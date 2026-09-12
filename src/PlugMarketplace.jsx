@@ -2725,6 +2725,52 @@ async function pushNotif(userId, notif) {
   });
 }
 
+/* ─── TRAFFIC EVENTS ──────────────────────────────────────────────────────────
+   error_events answers "did something throw?". This answers the questions that
+   actually decide whether the marketplace works: are searches coming back
+   empty, does anyone open a listing and leave, do people start a booking and
+   abandon it. None of those throw. The site behaves perfectly and the business
+   quietly fails.
+
+   THREE RULES THIS MUST NEVER BREAK
+
+   1. It cannot break the page. Every call is fire-and-forget and swallowed. A
+      logging system that can take down the thing it is logging is worse than no
+      logging at all — and unlike the booking emails, losing one of these costs
+      nothing, so fire-and-forget is the right choice here rather than a queue.
+
+   2. It records no personal data. Enumerated event names and small numeric
+      facts only — never what somebody typed, never an address, never an email.
+      The search event carries the LENGTH of the query and how many results came
+      back, which answers "are searches failing" without keeping what anyone
+      searched for.
+
+   3. The session id is not a person. Random per tab, gone when the tab closes,
+      never joined to anything. It exists so "started a booking" and "submitted
+      a booking" can be seen as one visit.
+────────────────────────────────────────────────────────────────────────────── */
+const SESSION_ID = (() => {
+  try {
+    const k = "plug_sid";
+    let v = sessionStorage.getItem(k);
+    if (!v) { v = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+              sessionStorage.setItem(k, v); }
+    return v;
+  } catch { return null; }   /* private mode, embedded webviews */
+})();
+
+function track(event, props) {
+  if (IS_PREVIEW) return;
+  try {
+    sb.from("app_events").insert({
+      event,
+      props: props && typeof props === "object" ? props : {},
+      session_id: SESSION_ID,
+      path: (typeof location !== "undefined" ? location.pathname : "").slice(0, 200),
+    }).then(() => {}, () => {});
+  } catch { /* never let measurement break the thing being measured */ }
+}
+
 async function getNotifs(userId) {
   if (IS_PREVIEW) {
     return (await _pGet("notif:" + userId)) || [];
@@ -7197,6 +7243,8 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
   const [otherEventNote, setOtherEventNote] = useState(initialDetails?.otherEventNote || "");
   const [eventDate,  setEventDate]  = useState(initialDetails?.eventDate || "");
   const [endDate,    setEndDate]    = useState(initialDetails?.endDate || "");
+  /* Paired with booking_submitted, this is the abandonment rate. */
+  useEffect(() => { if (cart.length) track("booking_started", { vendors: cart.length }); }, []);
   const [eventGuests,setEventGuests]= useState(initialDetails?.guests || "");
   const [eventVenue, setEventVenue] = useState(initialDetails?.venue || "");   // venue NAME (e.g. "The Grand Ballroom")
   const [message,    setMessage]    = useState(initialDetails?.message || "");
@@ -7304,6 +7352,7 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
     const busy = vendorsUnavailableOn(eventDate, startTime);
     if (busy.length) { setErr(conflictMessage(busy)); return; }
     setSubmitting(true);
+    track("booking_submitted", { vendors: cart.length, guests: Number(String(eventGuests).replace(/[^0-9]/g,"")) || 0 });
     /* Location: the venue's address when booking a place, else what the customer entered. */
     const loc = placeLoc || {
       venue: eventVenue, venueType, streetAddress: street, addressLine2: addr2,
@@ -9009,6 +9058,7 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
           {onToggleFav && (
             <button type="button" className="btn"
               onClick={() => { if (!user) { if (onRequireAuth) onRequireAuth(); return; }
+                               track("vendor_saved", { from: "profile" });
                                onToggleFav(vendor.id); }}
               title={isFav ? "Remove from saved" : "Save this vendor"}
               aria-pressed={isFav ? "true" : "false"}
@@ -12408,6 +12458,23 @@ export default function PlugApp() {
     /* Keep live listings visible near the top so new vendors get discovered. */
     return [...list].sort((a,b)=>((b.feat?1:0)+(b.isLive?1:0))-((a.feat?1:0)+(a.isLive?1:0)));
   }, [activeCat, activeSub, q, sortBy, filters, activePackage, dbVendors, qWhere, qWhen, qGuests, qEventType, availByVendor]);
+
+  /* A search that returns nothing is the most useful thing this marketplace can
+     tell you: it is a customer who wanted something you do not have yet, and it
+     is completely invisible in error logs because nothing went wrong.
+
+     Debounced by 700ms so typing "caterer" records one search rather than seven
+     prefixes of it. We keep the LENGTH of the query and the number of results,
+     never the text — "are searches failing" is answerable without keeping what
+     anybody searched for. */
+  useEffect(() => {
+    if (!q) return;
+    const t = setTimeout(() => {
+      track(filtered.length === 0 ? "search_empty" : "search_performed",
+            { len: q.length, results: filtered.length, cat: activeCat || "all" });
+    }, 700);
+    return () => clearTimeout(t);
+  }, [q, filtered.length, activeCat]);
 
   /* Smart recommendations — vendors missing from cart for this event package */
   const recs = useMemo(() => getRecommendations(cart, activePackage, VENDORS), [cart, activePackage]);
