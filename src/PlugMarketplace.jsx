@@ -2610,72 +2610,30 @@ async function getUserRequests(userId) {
 
 
 /* ── Booking decision emails ───────────────────────────────────────────────
-   Emails the customer AND the vendor when a booking is accepted or declined.
-   Addresses come from profiles.email (see email-notify-setup.sql). Failures
-   are logged, never thrown — email must not break the booking flow.        */
+   This used to POST to /api/send-booking-notification twice — once for the
+   customer, once for the vendor — with Promise.allSettled logging failures to
+   the console and nothing else. That browser fetch was the fragile step: the
+   booking row was already committed, so a closed tab, a dropped connection or
+   a cold start meant the email simply never happened, and the only trace was
+   a console line nobody reads.
+
+   The database does it now. A trigger on booking_requests writes both emails
+   into public.email_outbox in the same transaction as the status change, so
+   if the booking exists the email exists, and pg_cron drains the queue with
+   exponential backoff. Sending from here as well would hand every party a
+   second copy of everything.
+
+   Kept as a no-op rather than deleted so the call sites still read as "this
+   change is worth telling both parties about" — which is now true by
+   construction rather than by a fetch that may or may not land.           */
 
 /* Emails both parties when a customer cancels or modifies a booking. */
 async function notifyBookingChange({ requestId, status, customerId, vendorId, request }) {
   return notifyBookingDecision({ requestId, status, customerId, vendorId, request });
 }
 
-async function notifyBookingDecision({ requestId, status, customerId, vendorId, request }) {
-  if (IS_PREVIEW) return;
-
-  async function emailFor(id) {
-    if (!id) return null;
-    try {
-      const { data } = await sb.from("profiles")
-        .select("email, display_name, full_name").eq("id", id).single().get();
-      return data || null;
-    } catch { return null; }
-  }
-
-  const [customer, vendor] = await Promise.all([emailFor(customerId), emailFor(vendorId)]);
-  const vendorName   = vendor?.display_name   || vendor?.full_name   || "the vendor";
-  const customerName = customer?.display_name || customer?.full_name || request?.userName || "the customer";
-
-  const shared = {
-    status,
-    requestId,
-    vendorName,
-    customerName,
-    eventType: request?.eventType || request?.event_type || "",
-    eventDate: request?.eventDate || request?.event_date || "",
-    startTime: request?.startTime || request?.start_time || "",
-    endTime:   request?.endTime   || request?.end_time   || "",
-    guests:    request?.guests || "",
-    /* Full structured address so the vendor knows exactly where to go;
-       falls back to the venue name / free text when only that is set. */
-    venue:     formatEventLocation(request) || request?.venue || "",
-    serviceName:  request?.serviceName  || request?.service_name  || "",
-    packageName:  request?.packageName  || request?.package_name  || "",
-    packagePrice: request?.packagePrice ?? request?.package_price ?? "",
-    accessInstructions: request?.accessInstructions || request?.access_instructions || "",
-    note:      request?.note || request?.vendor_note || "",
-  };
-
-  const sends = [];
-  if (customer?.email) {
-    sends.push(fetch("/api/send-booking-notification", {
-      method: "POST", headers: apiAuthHeaders(),
-      body: JSON.stringify({ ...shared, to: customer.email, role: "customer" }),
-    }));
-  }
-  if (vendor?.email) {
-    sends.push(fetch("/api/send-booking-notification", {
-      method: "POST", headers: apiAuthHeaders(),
-      body: JSON.stringify({ ...shared, to: vendor.email, role: "vendor" }),
-    }));
-  }
-  if (!sends.length) {
-    console.warn("[PLUG] No email addresses found — run email-notify-setup.sql");
-    return;
-  }
-  const results = await Promise.allSettled(sends);
-  results.forEach(r => {
-    if (r.status === "rejected") console.error("[PLUG] booking email error:", r.reason);
-  });
+async function notifyBookingDecision() {
+  /* No-op. public.enqueue_booking_emails() queues these server-side. */
 }
 
 async function updateRequestStatus(reqId, status, note = "") {
