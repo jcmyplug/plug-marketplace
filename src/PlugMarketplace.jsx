@@ -3756,6 +3756,14 @@ function AuthModal({ onClose, onAuth }) {
       const geo = getGeoSignal();
       const meta = {
         role,
+        /* The form has always demanded a date of birth and checked it for 18+,
+           and then thrown it away: it was never put in meta, and the database
+           trigger inserted a hardcoded null. Every existing profile has dob
+           null. So the age gate stopped nobody — the check is client-side and
+           the REST API is public — and left no evidence that anyone attested
+           to being 18, which is exactly what the Terms require.
+           handle_new_user now reads this and refuses under-18 signups. */
+        dob:              form.dob || null,
         full_name:        form.name,
         first_name:       form.firstName || null,
         last_name:        form.lastName  || null,
