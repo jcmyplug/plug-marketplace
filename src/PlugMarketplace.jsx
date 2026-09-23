@@ -7400,31 +7400,32 @@ function SlotEditor({ v, eventStart, eventEnd, sameDay, onChange }) {
           </button>
         </p>
       ) : (
-        <div>
-          <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
-            {sel(start, t => onChange({ slotStart:t, slotEnd:end }), "Slot start")}
-            <span style={{ fontSize:11, color:C.midGray }}>to</span>
-            {sel(end, t => onChange({ slotStart:start, slotEnd:t }), "Slot end")}
-            <button type="button" onClick={() => { onChange({ slotStart:null, slotEnd:null }); setOpen(false); }}
-              className="btn"
-              style={{ background:"none", border:"none", fontSize:10.5, color:C.midGray,
-                       textDecoration:"underline", cursor:"pointer", padding:0 }}>
-              whole event
-            </button>
-            <button type="button" onClick={() => setOpen(false)} className="btn"
-              style={{ background:"none", border:"none", fontSize:10.5, color:C.midGray,
-                       cursor:"pointer", padding:0 }}>
-              done
-            </button>
-          </div>
-          {(invalid || outside) && (
-            <p style={{ margin:"4px 0 0", fontSize:10, color:"#B91C1C", lineHeight:1.45 }}>
-              {invalid
-                ? "This slot ends before it starts."
-                : `This is outside your event (${fmtTimeRange(eventStart, eventEnd)}).`}
-            </p>
-          )}
+        <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+          {sel(start, t => onChange({ slotStart:t, slotEnd:end }), "Slot start")}
+          <span style={{ fontSize:11, color:C.midGray }}>to</span>
+          {sel(end, t => onChange({ slotStart:start, slotEnd:t }), "Slot end")}
+          <button type="button" onClick={() => { onChange({ slotStart:null, slotEnd:null }); setOpen(false); }}
+            className="btn"
+            style={{ background:"none", border:"none", fontSize:10.5, color:C.midGray,
+                     textDecoration:"underline", cursor:"pointer", padding:0 }}>
+            whole event
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className="btn"
+            style={{ background:"none", border:"none", fontSize:10.5, color:C.midGray,
+                     cursor:"pointer", padding:0 }}>
+            done
+          </button>
         </div>
+      )}
+      {/* Shown whether or not the editor is open. A slot set earlier can be made
+          invalid later by moving the event itself, and the customer would never
+          reopen the editor to find out. */}
+      {(invalid || outside) && (
+        <p style={{ margin:"4px 0 0", fontSize:10, color:"#B91C1C", lineHeight:1.45 }}>
+          {invalid
+            ? "This slot ends before it starts."
+            : `This is outside your event (${fmtTimeRange(eventStart, eventEnd)}).`}
+        </p>
       )}
     </div>
   );
