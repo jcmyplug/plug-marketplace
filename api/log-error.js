@@ -1,3 +1,5 @@
+import { rateLimit } from "./_rate-limit.js";
+
 /* PLUG - error reporting and alerting.  Repo location: api/log-error.js
 
    Checklist items 32 and 33. Until now the only way you learned the site was
@@ -84,6 +86,11 @@ function rateLimited(ip) {
 }
 
 export default async function handler(req, res) {
+  /* Unauthenticated by design: errors happen to signed-out visitors and to
+     people whose session has just broken. 60 reports per 5 minutes per IP is
+     far above what a real browser produces and far below a flood. */
+  if (!(await rateLimit(req, res, { route: "log-error", max: 60, windowSeconds: 300 }))) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
