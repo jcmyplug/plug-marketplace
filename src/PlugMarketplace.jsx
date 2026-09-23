@@ -2880,8 +2880,18 @@ const SESSION_ID = (() => {
   } catch { return null; }   /* private mode, embedded webviews */
 })();
 
+/* Only the real site is measured. Branch previews, Vercel's own crawlers and
+   localhost all run this same bundle against this same database, so without
+   this check every test click lands in the production traffic log. Analytics
+   you cannot trust is worse than none — the same reason a staging environment
+   that drifts is worse than not having one. */
+const IS_PRODUCTION_HOST = (() => {
+  try { return /(^|\.)my-plug\.com$/i.test(window.location.hostname); }
+  catch { return false; }
+})();
+
 function track(event, props) {
-  if (IS_PREVIEW) return;
+  if (IS_PREVIEW || !IS_PRODUCTION_HOST) return;
   try {
     sb.from("app_events").insert({
       event,
