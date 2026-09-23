@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       # There is no package-lock.json in the repo yet, so npm ci cannot run.
       # Swap this for npm ci (and add cache: npm above) once a lockfile lands.
@@ -55,8 +55,13 @@ jobs:
       - name: Lint src/
         run: npm run lint
 
-      # Second safety net: the same production build Vercel runs. CI=true makes
-      # Create React App treat build warnings as errors as well.
+      # Unit tests for the pure booking rules. These are the decisions that
+      # decide whether a vendor can take a booking, so a regression here is a
+      # wrong booking rather than a wrong pixel.
+      - name: Unit tests
+        run: npm test
+
+      # Last safety net: the same production build Vercel runs.
       - name: Production build
         run: npm run build
         env:
