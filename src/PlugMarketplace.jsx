@@ -12700,7 +12700,23 @@ export default function PlugApp() {
       if (found) setVendorPage(found);
       return;
     }
+    /* r.kind === "home". Landing on "/" has to CLEAR the remembered category,
+       not just decline to set one.
+
+       activeCat is persisted in localStorage, so before URLs existed a returning
+       visitor picking up where they left off was the whole intent. Now that every
+       view has its own URL that intent has a URL of its own — /c/music — and "/"
+       means the homepage. Left as it was, the remembered value won: asking for
+       "/" put you on the music category AND the sync effect below rewrote the
+       address bar to /c/music, so the homepage was unreachable for anyone who
+       had ever clicked a category, and the canonical tag on the URL they asked
+       for pointed somewhere else.
+
+       Same principle as the vendor case above: an explicit URL beats whatever
+       this browser had open last time. */
     routedOnce.current = true;
+    setActiveCat("all");
+    setActiveSub(null);
   }, [dbVendors]);
 
   /* Preload availability for every live vendor (not just when a date is set),
