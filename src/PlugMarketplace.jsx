@@ -6775,6 +6775,11 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   const [wizDate,  setWizDate]  = useState("");
   const [wizStart, setWizStart] = useState("");
   const [wizEnd,   setWizEnd]   = useState("");
+  /* Guest count is collected here rather than at checkout because every step
+     after this one filters on it. A venue that holds 80 should never be
+     offered to someone expecting 300, and it cannot be hidden if nobody has
+     been asked. */
+  const [wizGuests, setWizGuests] = useState("");
   /* Empty means "finishes the same day". Storing the absence rather than a
      copy of the start date keeps same-day bookings writing end_date = null,
      which is exactly what the column means. */
@@ -6796,8 +6801,11 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   const detailsPayload = () => ({
     city: wizCity, eventDate: wizDate, startTime: wizStart, endTime: wizEnd,
     endDate: endSameDay ? "" : wizEndDate,
+    guests: String(wizGuests || ""),
     eventType: evt?.label || "Event",
   });
+  /* The four choices every later step is filtered by. */
+  const wizCtx = { city: wizCity, date: wizDate, startTime: wizStart, guests: wizGuests };
 
   function chooseEvent(id) {
     setEventId(id);
@@ -6825,7 +6833,7 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
 
   /* ── STEP 0: event details (location / date / time) — all click-based ── */
   if (phase === "details") {
-    const ready = wizCity && wizDate && wizStart && wizEnd;
+    const ready = wizCity && wizDate && wizStart && wizEnd && Number(wizGuests) > 0;
     return (
       <div className="fade-up" style={{ maxWidth:640, margin:"0 auto" }}>
         <div style={{ textAlign:"center", marginBottom:22 }}>
@@ -6844,6 +6852,28 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
           <option value="">Select a city…</option>
           {TX_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+
+        {/* Guest count */}
+        <label style={{ display:"block", fontSize:13, fontWeight:800, marginBottom:7 }}>👥 How many guests?</label>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:9 }}>
+          {[25,50,100,150,200,300,500].map(n => {
+            const on = String(wizGuests) === String(n);
+            return (
+              <button type="button" key={n} onClick={() => setWizGuests(String(n))}
+                style={{ padding:"8px 15px", borderRadius:99, fontSize:12.5, fontWeight:700,
+                         cursor:"pointer", border:`1.5px solid ${on ? C.orange : C.border}`,
+                         background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
+                {n}
+              </button>
+            );
+          })}
+        </div>
+        <input inputMode="numeric" value={wizGuests}
+          onChange={e => setWizGuests(e.target.value.replace(/[^0-9]/g, ""))}
+          placeholder="or type an exact number"
+          style={{ width:"100%", height:42, padding:"0 12px", borderRadius:11, fontSize:14,
+                   marginBottom:18, boxSizing:"border-box", fontFamily:"inherit",
+                   border:`1.5px solid ${wizGuests ? C.orange : C.border}` }} />
 
         {/* Start date */}
         <label style={{ display:"block", fontSize:13, fontWeight:800, marginBottom:7 }}>
@@ -6909,7 +6939,7 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
                    background: ready ? C.orange : "#E5E7EB", color: ready ? "#fff" : C.lightGray,
                    fontSize:15, fontWeight:800, cursor: ready ? "pointer" : "default",
                    boxShadow: ready ? C.shadowButton : "none" }}>
-          {ready ? "Continue →" : "Select location, date & time to continue"}
+          {ready ? "Continue →" : "Select location, guests, date & time to continue"}
         </button>
         <button onClick={onExit} className="btn"
           style={{ width:"100%", marginTop:10, padding:"10px 0", borderRadius:11, border:`1px solid ${C.border}`,
@@ -6983,7 +7013,19 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   /* ── STEP 2: category-by-category ── */
   if (phase === "cats") {
     const answered = answers[curCat];
-    const vendors = answered === "yes" ? vendorsFor(curCat, eventId) : [];
+    const vendors = answered === "yes" ? vendorsFor(curCat, eventId, wizCtx) : [];
+    /* An empty list must say what is blocking it. By this point the customer
+       has made four choices and has no way of knowing which one is fatal;
+       "no results" sends them away, "3 fit at 150 guests" keeps them here.
+       Each line re-runs the same filter with one choice dropped. */
+    const relaxed = (answered === "yes" && vendors.length === 0) ? [
+      { key:"guests", n: vendorsFor(curCat, eventId, { ...wizCtx, guests:"" }).length,
+        label:`you allow a different guest count (you asked for ${wizGuests})` },
+      { key:"date",   n: vendorsFor(curCat, eventId, { ...wizCtx, date:"", startTime:"" }).length,
+        label:"you move the date" },
+      { key:"city",   n: vendorsFor(curCat, eventId, { ...wizCtx, city:"" }).length,
+        label:`you look beyond ${wizCity}` },
+    ].filter(r => r.n > 0) : [];
     return (
       <div className="fade-up" style={{ maxWidth:1040, margin:"0 auto" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
@@ -7026,7 +7068,12 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
           <div>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
               <p style={{ margin:0, fontSize:13, color:C.midGray }}>
-                <strong style={{ color:C.black }}>{vendors.length}</strong> {curCatObj?.label} vendor{vendors.length!==1?"s":""} for your event — add any you like.
+                {vendors.length === 0 ? (
+                  <>Nothing available for this step.</>
+                ) : (
+                  <><strong style={{ color:C.black }}>{vendors.length}</strong> {curCatObj?.label} vendor{vendors.length!==1?"s":""} free
+                  on your date for {wizGuests} guests — add any you like.</>
+                )}
               </p>
               <button onClick={() => { setAnswers(a=>({...a,[curCat]:undefined})); }} className="btn"
                 style={{ background:"none", border:"none", fontSize:12, color:C.midGray, textDecoration:"underline" }}>
@@ -7034,9 +7081,34 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
               </button>
             </div>
             {vendors.length === 0 ? (
-              <div style={{ textAlign:"center", padding:"30px 20px", background:"#F9FAFB", borderRadius:14, border:`1px dashed ${C.border}` }}>
-                <p style={{ margin:0, fontSize:14, fontWeight:700 }}>No {curCatObj?.label} vendors available yet for this event type.</p>
-                <p style={{ margin:"4px 0 0", fontSize:12, color:C.midGray }}>You can continue and check back later.</p>
+              <div style={{ padding:"26px 22px", background:"#F9FAFB", borderRadius:14, border:`1px dashed ${C.border}` }}>
+                <p style={{ margin:0, fontSize:14, fontWeight:700, textAlign:"center" }}>
+                  No {curCatObj?.label?.toLowerCase()} free on {wizDate ? new Date(wizDate+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}) : "that date"} for {wizGuests} guests in {wizCity}.
+                </p>
+                {relaxed.length > 0 ? (
+                  <>
+                    <p style={{ margin:"14px 0 6px", fontSize:12, color:C.midGray, textAlign:"center" }}>
+                      What would open it up:
+                    </p>
+                    <ul style={{ margin:"0 auto", padding:"0 0 0 20px", fontSize:13, color:C.black,
+                                 lineHeight:1.9, maxWidth:380 }}>
+                      {relaxed.map(r => (
+                        <li key={r.key}><strong>{r.n}</strong> fit{r.n===1?"s":""} if {r.label}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p style={{ margin:"6px 0 0", fontSize:12, color:C.midGray, textAlign:"center" }}>
+                    No {curCatObj?.label?.toLowerCase()} vendors have joined PLUG yet. Skip this one and check back later.
+                  </p>
+                )}
+                <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:16, flexWrap:"wrap" }}>
+                  <button onClick={() => setPhase("details")} className="btn"
+                    style={{ padding:"9px 18px", borderRadius:11, border:`1.5px solid ${C.border}`,
+                             background:"#fff", color:C.black, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                    ← Change date, guests or city
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="vendor-grid" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:16 }}>
@@ -7063,6 +7135,15 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   /* ── STEP 3: review + send all ── */
   const picked = cart;
   const total = picked.reduce((a,v)=>a+(v.pv||0),0);
+  /* A cart assembled before the customer went back and moved the date, changed
+     the city or raised the guest count can still hold vendors who no longer
+     fit. Filtering the earlier steps is worthless if the result is allowed to
+     go stale on the last screen, so every selection is re-checked against the
+     event as it stands now. */
+  const stale = picked.filter(v => {
+    const fits = vendorsFor(String(v.cat || "").toLowerCase(), eventId, wizCtx);
+    return !fits.some(x => x.id === v.id);
+  });
   return (
     <div className="fade-up" style={{ maxWidth:720, margin:"0 auto" }}>
       <div style={{ textAlign:"center", marginBottom:22 }}>
@@ -7074,6 +7155,30 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
           Review everything you picked, then send all requests at once.
         </p>
       </div>
+
+      {stale.length > 0 && (
+        <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", borderRadius:13,
+                      padding:"14px 16px", marginBottom:16 }}>
+          <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#B91C1C" }}>
+            {stale.length === 1 ? "One selection no longer fits" : `${stale.length} selections no longer fit`} your event
+          </p>
+          <p style={{ margin:"4px 0 8px", fontSize:12, color:"#7F1D1D", lineHeight:1.6 }}>
+            Your date, city or guest count changed after you picked {stale.length === 1 ? "it" : "them"}.
+            Sending {stale.length === 1 ? "this request" : "these requests"} would almost certainly come back declined.
+          </p>
+          {stale.map(v => (
+            <div key={v.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                                     gap:10, marginTop:7 }}>
+              <span style={{ fontSize:13, fontWeight:700, color:C.black }}>{v.name}</span>
+              <button onClick={() => rmFromCart(v.id)} className="btn"
+                style={{ padding:"5px 11px", borderRadius:8, border:"1px solid #FCA5A5",
+                         background:"#fff", color:"#B91C1C", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {picked.length === 0 ? (
         <div style={{ textAlign:"center", padding:"40px 20px", background:"#F9FAFB", borderRadius:16, border:`1px dashed ${C.border}` }}>
@@ -12562,12 +12667,12 @@ export default function PlugApp() {
      Demo catalog vendors have no real calendar, so they're never date-filtered.
      Uses the shared vendorConflicts() so search matches the cart's rules:
      blocked dates, already-booked dates, and non-working days. */
-  function matchesWhen(v, when) {
+  function matchesWhen(v, when, startT) {
     if (!when) return true;
     if (!v.isLive) return true;                 // demo vendors have no live calendar
     const avail = availByVendor[v.vendorId];
     if (avail === undefined) return true;        // not loaded yet — don't hide prematurely
-    return vendorConflicts(v, avail, when, "").length === 0;
+    return vendorConflicts(v, avail, when, startT || "").length === 0;
   }
 
   const filtered = useMemo(() => {
@@ -13192,11 +13297,22 @@ export default function PlugApp() {
           {/* ── EVENT PACKAGES / BUILD PAGE ── */}
           {activeCat === "build" && (
             <BuildEventWizard
-              vendorsFor={(catId, eventId) => {
+              /* Everything the customer has already chosen narrows what the
+                 next step offers. A vendor who can't do that date, doesn't
+                 cover that area, or can't hold that many people is not shown
+                 at all — not greyed out, not shown with a warning. Offering
+                 something that cannot be booked is how a customer ended up
+                 with a venue in Houston on the 12th and a DJ in Katy on the
+                 13th. The wizard also calls this with one field blanked to
+                 work out which choice is blocking an empty result. */
+              vendorsFor={(catId, eventId, ctx = {}) => {
                 const ALL = [...dbVendors, ...VENDORS];
                 return ALL.filter(v =>
                   String(v.cat || "").toLowerCase() === catId &&
-                  matchesEventType(v, eventId));
+                  matchesEventType(v, eventId) &&
+                  matchesWhere(v, ctx.city || "") &&
+                  matchesWhen(v, ctx.date || "", ctx.startTime || "") &&
+                  matchesGuests(v, ctx.guests || ""));
               }}
               cart={cart}
               addToCart={addToCart}
