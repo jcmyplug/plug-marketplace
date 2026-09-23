@@ -2902,6 +2902,54 @@ function track(event, props) {
   } catch { /* never let measurement break the thing being measured */ }
 }
 
+/* ─── URLS ───────────────────────────────────────────────────────────────────
+   The whole marketplace lived at one URL. Every vendor, every category and the
+   event builder were states inside a single page, so nothing could be linked
+   to, shared, bookmarked or indexed: a vendor asking "send me my page" had no
+   page to be sent, and Google had exactly one thing to rank.
+
+   This is deliberately NOT a router. A router wants to own the render tree, and
+   the render tree here is one very large component whose view is already driven
+   by state (vendorPage, activeCat, activeSub). Rewriting that to satisfy a
+   library would be a far bigger change than the problem justifies, and the
+   problem is only that the address bar does not reflect the state.
+
+   So the URL is treated as a projection of the state, in both directions:
+   read once on boot, and kept in step afterwards with replaceState — which
+   never adds a history entry, and therefore cannot disturb the back-button
+   guard that is already carefully counting them.
+
+     /                     the marketplace
+     /build                Build My Event
+     /c/food               a category
+     /c/food/catering      a category and subcategory
+     /vendor/<id>          one listing
+────────────────────────────────────────────────────────────────────────────── */
+function parsePath(p) {
+  const seg = String(p || "/").split("/").filter(Boolean);
+  if (!seg.length) return { kind: "home" };
+  if (seg[0] === "build") return { kind: "build" };
+  if (seg[0] === "vendor" && seg[1]) {
+    return { kind: "vendor", id: decodeURIComponent(seg[1]) };
+  }
+  if (seg[0] === "c" && seg[1]) {
+    return {
+      kind: "cat",
+      cat: decodeURIComponent(seg[1]),
+      sub: seg[2] ? decodeURIComponent(seg[2]) : null,
+    };
+  }
+  return { kind: "home" };
+}
+
+/* Captured once, at load, before anything can rewrite it. */
+const BOOT_ROUTE = (() => {
+  try { return parsePath(window.location.pathname); }
+  catch { return { kind: "home" }; }
+})();
+
+const SITE_ORIGIN = "https://www.my-plug.com";
+
 async function getNotifs(userId) {
   if (IS_PREVIEW) {
     return (await _pGet("notif:" + userId)) || [];
@@ -12614,6 +12662,61 @@ export default function PlugApp() {
   }, [openLayerCount, authModal, cartOpen, notifOpen, accountOpen, adminPanelOpen,
       vendorPage, activePackage, activeSub, search, activeCat]);
 
+  /* ── The URL follows the view ──────────────────────────────────────────────
+     replaceState, not pushState, on purpose: the back-button guard above keeps
+     an exact count of the entries it has pushed, and adding entries here would
+     corrupt that accounting. Back still closes layers the way it always did —
+     the difference is only that the address bar now says where you are, so the
+     page can be linked to and indexed. */
+  function viewPath() {
+    if (vendorPage) return "/vendor/" + encodeURIComponent(vendorPage.id);
+    if (activeCat === "build") return "/build";
+    if (activeCat && activeCat !== "all") {
+      return "/c/" + encodeURIComponent(activeCat) +
+             (activeSub ? "/" + encodeURIComponent(activeSub) : "");
+    }
+    return "/";
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const want = viewPath();
+    try {
+      if (window.location.pathname !== want) {
+        window.history.replaceState(window.history.state, "", want);
+      }
+      /* Without this every page claims to be the homepage, which tells a search
+         engine to index one URL and discard the rest — the opposite of the
+         point of having URLs at all. */
+      const link = document.querySelector('link[rel="canonical"]');
+      if (link) link.setAttribute("href", SITE_ORIGIN + want);
+    } catch { /* history is unavailable in some embedded webviews */ }
+  }, [vendorPage, activeCat, activeSub]);
+
+  /* ── The view is restored from the URL, once, on boot ───────────────────── */
+  const routedOnce = useRef(false);
+  useEffect(() => {
+    if (routedOnce.current) return;
+    const r = BOOT_ROUTE;
+    if (r.kind === "build") { routedOnce.current = true; setActiveCat("build"); return; }
+    if (r.kind === "cat") {
+      routedOnce.current = true;
+      setActiveCat(r.cat);
+      if (r.sub) setActiveSub(r.sub);
+      return;
+    }
+    if (r.kind === "vendor") {
+      /* Listings arrive asynchronously, so a deep link has to wait for them
+         rather than resolving against an empty array and giving up. */
+      if (!dbVendors.length) return;
+      routedOnce.current = true;
+      const found = dbVendors.find(v => String(v.id) === r.id);
+      if (found) setVendorPage(found);
+      return;
+    }
+    routedOnce.current = true;
+  }, [dbVendors]);
+
   /* ── Page title updates per view ── */
   useEffect(() => {
     const base = "PLUG — " + market.label;
@@ -12704,6 +12807,10 @@ export default function PlugApp() {
      just closed (e.g. by clicking the logo to go home). */
   const restoredOnce = useRef(false);
   useEffect(() => {
+    /* A vendor URL is an explicit request and beats whatever this browser had
+       open last time. Without this, following a shared link could silently
+       open a different vendor. */
+    if (BOOT_ROUTE.kind === "vendor") return;
     if (restoredOnce.current || vendorPage || !openCardId || !dbVendors.length) return;
     restoredOnce.current = true;
     const found = dbVendors.find(v => v.id === openCardId);
