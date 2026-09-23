@@ -1349,13 +1349,22 @@ const sb = (() => {
      Authorization carries the user JWT when signed in, else falls back to anon. */
   function userAuth() { return "Bearer " + (_authToken || SUPABASE_ANON); }
 
-  /* Generic REST helper — falls back to window.storage in preview mode */
-  async function rest(method, path, body) {
+  /* Generic REST helper — falls back to window.storage in preview mode.
+
+     `opts.prefer` overrides the Prefer header. This matters more than it looks:
+     PostgREST's default here, return=representation, makes every write ALSO
+     read the row back, which needs SELECT permission on the table. A table that
+     is deliberately write-only for visitors — app_events is exactly that, so
+     nobody can read the traffic log — therefore fails the whole insert with
+     "permission denied", even though the write itself was allowed. Pass
+     { prefer: "return=minimal" } for those. */
+  async function rest(method, path, body, opts = {}) {
     if (IS_PREVIEW) return previewRest(method, path, body);
     try {
       const send = () => fetch(SUPABASE_URL + "/rest/v1" + path, {
         method,
-        headers: { ...headers, "Authorization": userAuth(), "Prefer": "return=representation" },
+        headers: { ...headers, "Authorization": userAuth(),
+                   "Prefer": opts.prefer || "return=representation" },
         body: body ? JSON.stringify(body) : undefined,
       });
       let res = await send();
@@ -1466,7 +1475,7 @@ const sb = (() => {
         return { data: data || [], error };
       },
 
-      async insert(row) { return rest("POST", `/${table}`, row); },
+      async insert(row, opts) { return rest("POST", `/${table}`, row, opts); },
 
       async update(row) {
         const q = _filters.length ? "?" + _filters.join("&") : "";
@@ -2879,7 +2888,7 @@ function track(event, props) {
       props: props && typeof props === "object" ? props : {},
       session_id: SESSION_ID,
       path: (typeof location !== "undefined" ? location.pathname : "").slice(0, 200),
-    }).then(() => {}, () => {});
+    }, { prefer: "return=minimal" }).then(() => {}, () => {});
   } catch { /* never let measurement break the thing being measured */ }
 }
 
