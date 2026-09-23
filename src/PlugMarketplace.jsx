@@ -7353,7 +7353,84 @@ function offerableDeadlineOptions(eventDate, startTime) {
   return RESPONSE_DEADLINE_OPTIONS.filter(o => o.hours <= hoursLeft);
 }
 
-function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthModal, budget, onSetBudget, initialDetails, onDetailsChange, availByVendor }) {
+/* ── PER-VENDOR TIME SLOT ────────────────────────────────────────────────────
+   The event runs 7pm–1am; the DJ plays 9pm–1am; catering serves 7:30–9pm.
+   Quoting a DJ for six hours when they are needed for four is a worse quote
+   and a confused vendor.
+
+   The slot is stored as `slotStart` / `slotEnd` on the cart line and is ABSENT
+   until the customer actually changes it. Absent means "the whole event", which
+   is re-read from the event window every time it is needed — so moving the
+   event from 7pm to 9pm moves every un-edited vendor with it. Copying the
+   window onto each line at add-time would look identical today and quietly go
+   stale the moment the customer changed their mind, which is the same class of
+   bug the filtering work just removed. */
+function SlotEditor({ v, eventStart, eventEnd, sameDay, onChange }) {
+  const [open, setOpen] = useState(false);
+  const custom = !!(v.slotStart || v.slotEnd);
+  const start = v.slotStart || eventStart;
+  const end   = v.slotEnd   || eventEnd;
+  if (!eventStart || !eventEnd) return null;
+
+  /* An end before its start is only wrong when both are on the same day —
+     1:00 AM after a 10:00 PM start is a normal night. */
+  const invalid = sameDay && start && end && end <= start;
+  /* A slot outside the event itself is always a mistake worth naming. */
+  const outside = sameDay && ((start < eventStart) || (end > eventEnd));
+
+  const sel = (val, onPick, label) => (
+    <select value={val} aria-label={label} onChange={e => onPick(e.target.value)}
+      style={{ height:30, borderRadius:8, fontSize:11.5, fontFamily:"inherit",
+               padding:"0 6px", border:`1.5px solid ${C.border}`, background:"#fff",
+               color:C.black, cursor:"pointer" }}>
+      {TIME_OPTIONS.map(t => <option key={t} value={t}>{fmtTime12(t)}</option>)}
+    </select>
+  );
+
+  return (
+    <div style={{ marginTop:5 }}>
+      {!open ? (
+        <p style={{ margin:0, fontSize:10.5, color: custom ? "#6D28D9" : C.midGray, lineHeight:1.5 }}>
+          🕐 Needed {fmtTimeRange(start, end)}
+          {custom ? "" : " (whole event)"}
+          <button type="button" onClick={() => setOpen(true)} className="btn"
+            style={{ background:"none", border:"none", padding:"0 0 0 6px", fontSize:10.5,
+                     color:C.midGray, textDecoration:"underline", cursor:"pointer" }}>
+            change
+          </button>
+        </p>
+      ) : (
+        <div>
+          <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+            {sel(start, t => onChange({ slotStart:t, slotEnd:end }), "Slot start")}
+            <span style={{ fontSize:11, color:C.midGray }}>to</span>
+            {sel(end, t => onChange({ slotStart:start, slotEnd:t }), "Slot end")}
+            <button type="button" onClick={() => { onChange({ slotStart:null, slotEnd:null }); setOpen(false); }}
+              className="btn"
+              style={{ background:"none", border:"none", fontSize:10.5, color:C.midGray,
+                       textDecoration:"underline", cursor:"pointer", padding:0 }}>
+              whole event
+            </button>
+            <button type="button" onClick={() => setOpen(false)} className="btn"
+              style={{ background:"none", border:"none", fontSize:10.5, color:C.midGray,
+                       cursor:"pointer", padding:0 }}>
+              done
+            </button>
+          </div>
+          {(invalid || outside) && (
+            <p style={{ margin:"4px 0 0", fontSize:10, color:"#B91C1C", lineHeight:1.45 }}>
+              {invalid
+                ? "This slot ends before it starts."
+                : `This is outside your event (${fmtTimeRange(eventStart, eventEnd)}).`}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CartPanel({ cart, onRemove, onUpdateItem, onClose, onSubmitRequests, user, setAuthModal, budget, onSetBudget, initialDetails, onDetailsChange, availByVendor }) {
   /* Unavailable dates per vendor in the cart — blocked days the vendor marked
      off, plus days they already have a confirmed booking. Customers must not
      be able to request those dates. */
@@ -7390,7 +7467,10 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
     if (!dateStr) return [];
     return cart.map(v => {
       const id = v.vendorId || v.dbId || String(v.id).replace(/^db_/, "");
-      const reasons = vendorConflicts(v, vendorAvail[id], dateStr, startT);
+      /* Check each vendor against the hour THEY are needed, not the hour the
+         event opens. A DJ who only works evenings is not a conflict because
+         the setup crew starts at 7am. */
+      const reasons = vendorConflicts(v, vendorAvail[id], dateStr, v.slotStart || startT);
       return reasons.length ? { vendor: v, reasons } : null;
     }).filter(Boolean);
   }
@@ -7525,6 +7605,21 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
       setErr("Please choose the venue type so vendors know what kind of space they are coming to."); return;
     }
     if (!placeVendor && !city.trim()) { setErr("Please add at least the event city so the vendor knows where to go."); return; }
+    /* A per-vendor slot that ends before it starts, or falls outside the event
+       itself, is a typo the vendor cannot interpret. Only meaningful when the
+       event begins and ends on the same day — a 1:00 AM finish after a 10:00 PM
+       start is an ordinary night, not an error. */
+    if (endSameDay) {
+      const badSlot = cart.find(v => {
+        const s = v.slotStart || startTime, e = v.slotEnd || endTime;
+        if (!s || !e) return false;
+        return e <= s || s < startTime || e > endTime;
+      });
+      if (badSlot) {
+        setErr(`${badSlot.name || "A vendor"}'s time slot (${fmtTimeRange(badSlot.slotStart || startTime, badSlot.slotEnd || endTime)}) doesn't fit inside your event (${fmtTimeRange(startTime, endTime)}). Fix it or set them back to the whole event.`);
+        return;
+      }
+    }
     const busy = vendorsUnavailableOn(eventDate, startTime);
     if (busy.length) { setErr(conflictMessage(busy)); return; }
     setSubmitting(true);
@@ -7567,8 +7662,10 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
       state:      loc.state,
       zip:        loc.zip,
       addressVerified: locVerified,
-      startTime,
-      endTime,
+      /* The hours THIS vendor is needed. No slot set means the whole event, so
+         the event window is read here rather than copied when they were added. */
+      startTime: vendor.slotStart || startTime,
+      endTime:   vendor.slotEnd   || endTime,
       accessInstructions: access,
       message,
       status:     "pending",
@@ -7687,6 +7784,9 @@ function CartPanel({ cart, onRemove, onClose, onSubmitRequests, user, setAuthMod
                           </p>
                         );
                       })()}
+                      <SlotEditor v={v} eventStart={startTime} eventEnd={endTime}
+                        sameDay={endSameDay}
+                        onChange={patch => onUpdateItem && onUpdateItem(v.id, patch)} />
                     </div>
                     <button onClick={() => onRemove(v.id)} className="btn"
                       style={{ background:"none", border:"none", color:C.lightGray,
@@ -12568,6 +12668,10 @@ export default function PlugApp() {
     setCartOpen(true);
   }
   function rmFromCart(id) { setCart(p=>p.filter(v=>v.id!==id)); }
+  /* Patch one line of the cart — used for the per-vendor time slot. */
+  function updateCartItem(id, patch) {
+    setCart(p => p.map(v => v.id === id ? { ...v, ...patch } : v));
+  }
 
   function handleSubmitRequests(sentRequests) {
     setCart([]); setCartOpen(false); setRequestsSent(sentRequests); setRecentlySent(sentRequests);
@@ -12820,6 +12924,7 @@ export default function PlugApp() {
           cart={cart}
           availByVendor={availByVendor}
           onRemove={rmFromCart}
+          onUpdateItem={updateCartItem}
           onClose={() => setCartOpen(false)}
           onSubmitRequests={handleSubmitRequests}
           initialDetails={eventDetails}
