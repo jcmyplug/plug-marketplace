@@ -1,3 +1,5 @@
+import { rateLimit } from "./_rate-limit.js";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    PLUG — booking lifecycle email
    Repo location:  api/send-booking-notification.js
@@ -50,6 +52,12 @@ async function asCaller(jwt, path) {
 }
 
 export default async function handler(req, res) {
+  /* Also sends email. 20 per 15 minutes is set above the realistic worst case
+     for a legitimate user — sending a whole cart of requests at once — rather
+     than at the typical case, because a limit that fires on normal use gets
+     removed by the next person who hits it. */
+  if (!(await rateLimit(req, res, { route: "booking-mail", max: 20, windowSeconds: 900 }))) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
