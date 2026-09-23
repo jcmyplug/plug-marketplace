@@ -4476,7 +4476,7 @@ function AuthModal({ onClose, onAuth }) {
               ? "5 failed attempts trigger a 15-minute lockout."
               : role === "vendor"
               ? "Every vendor application is reviewed before their listings go live."
-              : "A verification code will be sent to your email."}
+              : "We'll email you a link to confirm your address."}
           </p>
         </div>
       </div>
