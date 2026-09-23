@@ -2993,9 +2993,21 @@ function parsePath(p) {
     return { kind: "vendor", id: decodeURIComponent(seg[1]) };
   }
   if (seg[0] === "c" && seg[1]) {
+    const cat = decodeURIComponent(seg[1]);
+    /* The category has to be one we actually have. Without this check any
+       /c/<anything> rendered as a real page: an empty grid, a plausible title
+       built from the raw slug ("venues in Houston, TX" — the real id is
+       "places"), a canonical tag pointing at itself, and robots index,follow.
+
+       Two problems with that. A customer following a stale or mistyped link
+       lands on a dead end that looks like a legitimately empty category rather
+       than a wrong address. And it hands a search engine an unbounded supply of
+       crawlable, indexable, near-identical pages, which is the classic way to
+       get a site's real pages buried under its own thin content. */
+    if (!CATEGORIES.some(c => c.id === cat)) return { kind: "home" };
     return {
       kind: "cat",
-      cat: decodeURIComponent(seg[1]),
+      cat,
       sub: seg[2] ? decodeURIComponent(seg[2]) : null,
     };
   }
@@ -4028,7 +4040,14 @@ function AuthModal({ onClose, onAuth }) {
       <div style={{ background:"#FFF7ED", border:`1px solid ${C.orangeBorder}`, borderRadius:10,
                     padding:"9px 12px", marginBottom:12 }}>
         <p style={{ margin:0, fontSize:11.5, fontWeight:800, color:C.orange }}>
-          Step 1 of 2 — Create your business profile
+          {/* Was "Step 1 of 2". It meant stage 1 of the two-part journey
+              (business account now, listings after approval) — but it sits
+              directly above a four-dot stepper reading 1 Login, 2 Business,
+              3 Location, 4 Finish. Two different counters, both called "Step",
+              stacked on top of each other: a vendor on the first screen was
+              told they were on step 1 of 2 while looking at four steps. Same
+              meaning, without the collision. */}
+          First, your business profile — then your listings
         </p>
         <p style={{ margin:"3px 0 0", fontSize:11, color:"#9A3412", lineHeight:1.55 }}>
           This is your business account. Once it's approved you'll add your
@@ -12766,6 +12785,22 @@ export default function PlugApp() {
          rather than resolving against an empty array and giving up. */
       if (!dbVendors.length) return;
       routedOnce.current = true;
+      /* Clear the remembered category, whether or not the vendor resolves.
+
+         A vendor URL that DOES resolve was already fine — vendorPage outranks
+         activeCat in both the render and viewPath, so the profile showed and
+         the address bar was correct. The gap is the link that does not resolve:
+         a listing that was deleted, unapproved, or an id that was mistyped or
+         has changed. Nothing was reset, so the persisted category won and the
+         visitor landed on whatever they last had open — for anyone who had
+         used Build My Event, the event builder, with the URL rewritten to
+         /build. A dead listing link should return you to the homepage, not
+         silently hand you a different feature.
+
+         Same rule as "/" above: an explicit URL beats a remembered preference.
+         This branch just did not apply it. */
+      setActiveCat("all");
+      setActiveSub(null);
       const found = dbVendors.find(v => String(v.id) === r.id);
       if (found) setVendorPage(found);
       return;
