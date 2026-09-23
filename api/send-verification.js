@@ -1,3 +1,5 @@
+import { rateLimit } from "./_rate-limit.js";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    PLUG — email verification code
    Repo location:  api/send-verification.js
@@ -72,6 +74,11 @@ async function getCallerFromJwt(req) {
 }
 
 export default async function handler(req, res) {
+  /* This one sends real email and therefore costs real money, and a flood of
+     verification mail to addresses the sender does not own is how a domain
+     gets its sending reputation destroyed. 5 per 15 minutes per IP. */
+  if (!(await rateLimit(req, res, { route: "verify-email", max: 5, windowSeconds: 900 }))) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });

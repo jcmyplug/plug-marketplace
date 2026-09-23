@@ -2394,34 +2394,24 @@ async function uploadVendorPhoto(vendorId, file, accessToken) {
   }
 }
 
-async function submitVendorApp(vendorId, app) {
-  /* Update vendor_profiles with full application data */
-  await sb.from("vendor_profiles").eq("id", vendorId).update({
-    business_name:    app.business,
-    biz_legal:        app.bizLegal,
-    biz_type:         app.bizType,
-    biz_license:      app.bizLicense,
-    ein:              app.ein,
-    years_in_biz:     parseInt(app.yearsInBiz) || null,
-    biz_phone:        app.bizPhone,
-    biz_website:      app.bizWebsite,
-    managing_members: app.managingMembers,
-    biz_address:      app.bizAddress,
-    biz_city:         app.bizCity,
-    biz_state:        app.bizState || "TX",
-    biz_zip:          app.bizZip,
-    service_areas:    app.serviceAreas,
-    schedule:         app.schedule,
-    category:         app.category,
-    capacity:         app.capacity,
-    travel_miles:     parseInt(app.travelMiles) || null,
-    project_size:     app.projectSize,
-    doc_file_name:    app.docFileName || null,
-    photo_count:      app.photoCount || 0,
-    photos:           Array.isArray(app.photoUrls) ? app.photoUrls : [],
-    verification_status: "pending",
-  });
-}
+/* DELETED 23 Sep 2026 — submitVendorApp.
+
+   It wrote the vendor application from the browser, using the session signUp
+   used to return. With email confirmation on there is no session at that
+   moment, so this would have run as anon and been refused by RLS — quietly,
+   because nothing checked the result. The vendor would have been told they had
+   applied and the application would have been empty.
+
+   handle_new_user now writes the same columns from raw_user_meta_data, before
+   any session exists. One writer, server-side, where it cannot be skipped.
+
+   For reference, the columns it used to set: business_name, biz_legal,
+   biz_type, biz_license, ein, years_in_biz, biz_phone, biz_website,
+   managing_members, biz_address, biz_city, biz_state, biz_zip, service_areas,
+   schedule, category, capacity, travel_miles, project_size, doc_file_name,
+   photo_count, photos, verification_status. The trigger sets all of these
+   except photo_count and photos, which now start empty and are filled when the
+   vendor uploads from their dashboard. */
 
 /* ── ADMIN MODERATION ─────────────────────────────────────────────────────
    Every action is authorised server-side by is_admin(), so a non-admin calling
@@ -2902,6 +2892,54 @@ function track(event, props) {
   } catch { /* never let measurement break the thing being measured */ }
 }
 
+/* ─── URLS ───────────────────────────────────────────────────────────────────
+   The whole marketplace lived at one URL. Every vendor, every category and the
+   event builder were states inside a single page, so nothing could be linked
+   to, shared, bookmarked or indexed: a vendor asking "send me my page" had no
+   page to be sent, and Google had exactly one thing to rank.
+
+   This is deliberately NOT a router. A router wants to own the render tree, and
+   the render tree here is one very large component whose view is already driven
+   by state (vendorPage, activeCat, activeSub). Rewriting that to satisfy a
+   library would be a far bigger change than the problem justifies, and the
+   problem is only that the address bar does not reflect the state.
+
+   So the URL is treated as a projection of the state, in both directions:
+   read once on boot, and kept in step afterwards with replaceState — which
+   never adds a history entry, and therefore cannot disturb the back-button
+   guard that is already carefully counting them.
+
+     /                     the marketplace
+     /build                Build My Event
+     /c/food               a category
+     /c/food/catering      a category and subcategory
+     /vendor/<id>          one listing
+────────────────────────────────────────────────────────────────────────────── */
+function parsePath(p) {
+  const seg = String(p || "/").split("/").filter(Boolean);
+  if (!seg.length) return { kind: "home" };
+  if (seg[0] === "build") return { kind: "build" };
+  if (seg[0] === "vendor" && seg[1]) {
+    return { kind: "vendor", id: decodeURIComponent(seg[1]) };
+  }
+  if (seg[0] === "c" && seg[1]) {
+    return {
+      kind: "cat",
+      cat: decodeURIComponent(seg[1]),
+      sub: seg[2] ? decodeURIComponent(seg[2]) : null,
+    };
+  }
+  return { kind: "home" };
+}
+
+/* Captured once, at load, before anything can rewrite it. */
+const BOOT_ROUTE = (() => {
+  try { return parsePath(window.location.pathname); }
+  catch { return { kind: "home" }; }
+})();
+
+const SITE_ORIGIN = "https://www.my-plug.com";
+
 async function getNotifs(userId) {
   if (IS_PREVIEW) {
     return (await _pGet("notif:" + userId)) || [];
@@ -2994,51 +3032,20 @@ async function recordAttempt(email, success) {
   } catch(e) { console.error("[recordAttempt]", e); }
 }
 
-/* ── Verify codes — preview uses window.storage, production uses Supabase ── */
-async function storeVerifyCode(userId, type, code) {
-  if (IS_PREVIEW) {
-    await _pSet("verify:" + type + ":" + userId,
-      { code, expires: Date.now() + 10 * 60000 });
-    return { ok: true, error: null };
-  }
-  const { data, error } = await sb.from("verify_codes").insert({
-    user_id: userId, type, code,
-    expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
-    used: false,
-  });
-  if (error) return { ok: false, error: error.message || "Could not store verification code." };
-  /* Empty representation means the INSERT matched no rows — normally RLS on
-     verify_codes rejecting the write. Surface it instead of failing silently,
-     otherwise the user gets a code that was never saved and can never verify. */
-  if (Array.isArray(data) && data.length === 0) {
-    return { ok: false, error: "Verification code could not be saved (blocked by database security policy on verify_codes)." };
-  }
-  return { ok: true, error: null };
-}
+/* ── RETIRED 23 Sep 2026: the hand-rolled 6-digit email verification ─────────
+   Supabase Auth now confirms email addresses itself. Its check happens inside
+   the auth server, so it cannot be skipped by anyone talking to the REST API
+   directly; ours ran in the browser, which meant a scripted signup never had to
+   see it. Running both would have been the worst of the two — twice the code,
+   and the weaker check still deciding what `email_verified` said.
 
-async function checkVerifyCode(userId, type, input) {
-  if (IS_PREVIEW) {
-    const s = await _pGet("verify:" + type + ":" + userId);
-    if (!s) return "expired";
-    if (Date.now() > s.expires) return "expired";
-    if (s.code !== input.trim()) return "wrong";
-    await _pDel("verify:" + type + ":" + userId);
-    return "ok";
-  }
-  const { data } = await sb.from("verify_codes")
-    .select("*").eq("user_id", userId).eq("type", type).eq("used", false)
-    .order("created_at", { ascending: false }).limit(1).single().get();
-  if (!data) return "expired";
-  if (new Date(data.expires_at) < new Date()) return "expired";
-  if (data.code !== input.trim()) return "wrong";
-  await sb.from("verify_codes").eq("id", data.id).update({ used: true });
-  return "ok";
-}
+   Deleted here: storeVerifyCode, checkVerifyCode, genVerifyCode, and their two
+   callers in the signup modal (submitEmailVerify, resendCode).
 
-/* ── Email / phone verification codes (6-digit, 10-min expiry) ────────────── */
-function genVerifyCode() { return String(Math.floor(100000 + Math.random() * 900000)); }
-
-/* storeVerifyCode and checkVerifyCode moved to Supabase implementation above */
+   Still present elsewhere and deliberately untouched:
+     - the `verify_codes` table (holds historical rows; drop it separately)
+     - /api/send-verification (still rate-limited; no longer called by the app)
+   ──────────────────────────────────────────────────────────────────────────── */
 
 /* ── Locale / timezone-based geo signal (no external API — privacy safe) ─── */
 function getGeoSignal() {
@@ -3497,17 +3504,15 @@ function AuthModal({ onClose, onAuth }) {
 
   /* ── Email verification phase ── */
   const [verifyPhase,  setVerifyPhase] = useState(null);  // null | "email"
-  const [verifyCode,   setVerifyCode]  = useState("");    // user input
-  const [devCode,      setDevCode]     = useState("");    // demo display
-  const [pendingUser,  setPendingUser] = useState(null);  // account awaiting verify
 
   /* ── Rate-limit display ── */
   const [rlState,      setRlState]     = useState({ blocked: false, attemptsLeft: 5 });
 
   /* ── Document upload (vendor) ── */
   const [docFile,      setDocFile]     = useState(null);
-  /* ── Service photos (vendor, up to 5) ── */
-  const [photoFiles,   setPhotoFiles]  = useState([]);
+  /* Service photos are no longer collected at signup. Uploading needs a
+     session, and with email confirmation on there is none until the vendor
+     clicks the link, so the picker lives in the dashboard instead. */
 
   const [form, setForm] = useState({
     name:"", firstName:"", lastName:"", email:"", password:"", password2:"", phone:"", dob:"", setupKey:"", captchaAnswer:"",
@@ -3619,8 +3624,10 @@ function AuthModal({ onClose, onAuth }) {
       return true;
     }
     if ((step === 4 && role === "vendor") || (step === 2 && role !== "vendor")) {
-      if (role === "vendor" && photoFiles.length === 0)
-        { setErr("Please upload at least 1 photo of your service."); return false; }
+      /* The photo requirement moved to the dashboard along with the upload.
+         Demanding a photo here would be unsatisfiable: there is no picker any
+         more, because there is no session to upload with until the vendor has
+         confirmed their email. */
       if (parseInt(form.captchaAnswer) !== captcha.answer)
         { setErr(`Verification failed — answer: ${form.captchaAnswer || "(blank)"}`); return false; }
       if (!tosAccepted) { setErr("Please accept PLUG's terms to continue."); return false; }
@@ -3640,23 +3647,6 @@ function AuthModal({ onClose, onAuth }) {
     reader.onload = ev => setDocFile({ name: file.name, size: file.size,
                                        type: file.type, base64: ev.target.result });
     reader.readAsDataURL(file);
-  }
-
-  /* ── Photo upload handler (multiple, max 5) ── */
-  function handlePhotoUpload(e) {
-    const files = Array.from(e.target.files || []);
-    const remaining = 5 - photoFiles.length;
-    if (files.length > remaining) { setErr(`Max 5 photos. You can add ${remaining} more.`); return; }
-    let loaded = 0; const newPhotos = [];
-    files.forEach(file => {
-      if (file.size > 4 * 1024 * 1024) { setErr(`${file.name} exceeds 4 MB.`); return; }
-      const reader = new FileReader();
-      reader.onload = ev => {
-        newPhotos.push({ name: file.name, base64: ev.target.result, file });
-        if (++loaded === files.length) setPhotoFiles(p => [...p, ...newPhotos].slice(0, 5));
-      };
-      reader.readAsDataURL(file);
-    });
   }
 
   /* ── Forgot password — send Supabase recovery email ── */
@@ -3708,6 +3698,14 @@ function AuthModal({ onClose, onAuth }) {
       const geo = getGeoSignal();
       const meta = {
         role,
+        /* The form has always demanded a date of birth and checked it for 18+,
+           and then thrown it away: it was never put in meta, and the database
+           trigger inserted a hardcoded null. Every existing profile has dob
+           null. So the age gate stopped nobody — the check is client-side and
+           the REST API is public — and left no evidence that anyone attested
+           to being 18, which is exactly what the Terms require.
+           handle_new_user now reads this and refuses under-18 signups. */
+        dob:              form.dob || null,
         full_name:        form.name,
         first_name:       form.firstName || null,
         last_name:        form.lastName  || null,
@@ -3730,6 +3728,11 @@ function AuthModal({ onClose, onAuth }) {
         category:         form.category      || null,
         capacity:         form.capacity      || null,
         travel_miles:     form.travelMiles   || null,
+        /* These two used to be written by the client after signup, with the
+           session Supabase handed back. There is no session any more, so they
+           travel here and handle_new_user writes them. */
+        project_size:     form.projectSize   || null,
+        doc_file_name:    docFile?.name      || null,
         market_id:        "houston-tx",
       };
       /* Started and completed are separate events on purpose: the gap between
@@ -3742,124 +3745,43 @@ function AuthModal({ onClose, onAuth }) {
         setLoading(false); return;
       }
       track("signup_completed", { role });
-      const id = authData.user.id;
-      /* If Supabase returned a session (email confirmation disabled), authenticate
-         the REST client immediately. Otherwise the writes below (vendor app,
-         verification code) run as anon and RLS silently rejects them. */
-      if (!IS_PREVIEW && authData.access_token) sb.setAuth(authData.access_token, authData.refresh_token);
-      /* Wait for trigger to create vendor_profiles row */
-      if (role === "vendor") {
-        await new Promise(r => setTimeout(r, 1000));
-        /* Upload the photos captured during signup to Supabase Storage so the
-           listing actually shows them (previously only the count was kept). */
-        let photoUrls = [];
-        if (!IS_PREVIEW && photoFiles.length) {
-          for (const p of photoFiles) {
-            if (!p.file) continue;
-            const { url } = await uploadVendorPhoto(id, p.file, authData.access_token);
-            if (url) photoUrls.push(url);
-          }
-        }
-        await submitVendorApp(id, {
-          ...form, vendorId: id, email: form.email,
-          business: form.bizLegal || form.business,
-          geoSignal: geo,
-          docFileName:  docFile?.name || null,
-          photoCount:   photoFiles.length,
-          photoUrls,
-        });
-      }
-      /* Generate and store email verification code */
-      const code = genVerifyCode();
-      const stored = await storeVerifyCode(id, "email", code);
-      if (stored && !stored.ok) {
-        setErr(stored.error + " Your account was created — please use “Forgot password?” to sign in, or contact support.");
-        setLoading(false); return;
-      }
-      setDevCode(code);
 
-      /* Send the code via Resend (production only — preview shows code on-screen) */
-      let mailFailed = false;
-      if (!IS_PREVIEW) {
-        try {
-          const emailRes = await fetch("/api/send-verification", {
-            method:  "POST",
-            headers: apiAuthHeaders(),
-            body:    JSON.stringify({ email: form.email, code }),
-          });
-          if (!emailRes.ok) {
-            mailFailed = true;
-            const errText = await emailRes.text().catch(()=>"");
-            console.error("[send-verification] failed:", emailRes.status, errText);
-          }
-        } catch (mailErr) {
-          mailFailed = true;
-          console.error("[send-verification] exception:", mailErr);
-        }
-      }
-      setMailError(mailFailed);
+      /* ── Email confirmation is Supabase's job now ──────────────────────────
+         There used to be two verification systems: Supabase's, and a home-made
+         six-digit code stored in verify_codes and mailed through Resend. Two
+         systems where neither actually gated anything — an unverified account
+         could book, message and review, because RLS gates on is_active(),
+         which only looks at blocked/deactivated.
 
-      setPendingUser({
-        id, type: role,
-        name: meta.biz_legal || meta.business_name || form.name,
-        displayName: form.name,
-        email: form.email,
-        emailVerified: false,
-        status: role === "vendor" ? "pending" : "active",
-      });
+         Supabase's is the one that cannot be bypassed: it is enforced at the
+         auth endpoint, so it applies to anyone calling the API directly, not
+         only to people using this form. The six-digit flow is gone.
+
+         The important consequence: with confirmation on, signUp returns NO
+         session. Everything that used to happen here with the new user's token
+         — writing the vendor application, uploading photos, storing the code —
+         would run as anon and be rejected by RLS, silently, because nothing
+         checked the result. The account would exist, the vendor would be told
+         they had applied, and the application would be empty.
+
+         So the vendor application now travels in the signup metadata and is
+         written by handle_new_user, server-side, before any session exists.
+         Nothing below needs a token. */
+
+      /* Nothing is held about the new account here on purpose. There is no
+         session, so there is no signed-in user to represent; the next thing
+         that happens is they click the link in their email and sign in, which
+         loads the profile from the database rather than from anything we
+         remembered in this tab. */
       setVerifyPhase("email");
 
     } catch(e) { console.error(e); setErr("Something went wrong. Please try again."); }
     setLoading(false);
   }
 
-  /* ── Verify email code ── */
-  async function submitEmailVerify() {
-    if (!verifyCode.trim()) { setErr("Please enter the verification code."); return; }
-    setLoading(true);
-    const result = await checkVerifyCode(pendingUser.id, "email", verifyCode);
-    if (result === "ok") {
-      /* Update email_verified */
-      if (IS_PREVIEW) {
-        const profile = await _pGet("pu:" + pendingUser.id);
-        if (profile) await _pSet("pu:" + pendingUser.id, { ...profile, email_verified: true });
-      } else {
-        await sb.from("profiles").eq("id", pendingUser.id).update({ email_verified: true });
-      }
-      /* Create session */
-      const { data: sessionData } = await sb.signIn(form.email, form.password);
-      if (sessionData?.access_token) await saveSession(sessionData);
-      const verifiedUser = { ...pendingUser, emailVerified: true };
-      setCreated(verifiedUser);
-      setVerifyPhase(null);
-    } else if (result === "expired") {
-      setErr("Code expired. Please sign up again.");
-    } else {
-      setErr("Incorrect code. Please check and try again.");
-    }
-    setLoading(false);
-  }
-
-  function resendCode() {
-    if (!pendingUser) return;
-    const code = genVerifyCode();
-    storeVerifyCode(pendingUser.id, "email", code).then(async () => {
-      setDevCode(code);
-      setVerifyCode("");
-      setErr("");
-      if (!IS_PREVIEW) {
-        try {
-          await fetch("/api/send-verification", {
-            method:  "POST",
-            headers: apiAuthHeaders(),
-            body:    JSON.stringify({ email: pendingUser.email, code }),
-          });
-        } catch (mailErr) {
-          console.error("[send-verification resend] exception:", mailErr);
-        }
-      }
-    });
-  }
+  /* submitEmailVerify and resendCode deleted 23 Sep 2026 — Supabase Auth sends
+     and checks the confirmation link itself, and its resend lives on the
+     "Check your email" screen. */
 
   function continueGuest() { onAuth({ type:"guest", name:"Guest", id: uid() }); onClose(); }
 
@@ -3893,65 +3815,47 @@ function AuthModal({ onClose, onAuth }) {
         <div onClick={e=>e.stopPropagation()} className="fade-up"
           style={{ background:"#fff", borderRadius:22, maxWidth:420, width:"100%",
                    padding:"36px 30px", boxShadow:C.shadowModal, textAlign:"center" }}>
+          {/* Supabase sends the confirmation link itself, at the auth endpoint,
+              so this screen only has to tell the truth and get out of the way.
+              There is no code to type and nothing here to get wrong. */}
           <div style={{ fontSize:48, marginBottom:12 }}>📧</div>
           <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:800, margin:"0 0 8px" }}>
-            Verify your email
+            Check your email
           </h2>
+          <p style={{ fontSize:13, color:C.midGray, margin:"0 0 6px", lineHeight:1.65 }}>
+            We sent a confirmation link to <strong style={{ color:C.black }}>{form.email}</strong>
+          </p>
           <p style={{ fontSize:13, color:C.midGray, margin:"0 0 20px", lineHeight:1.65 }}>
-            We sent a 6-digit code to <strong>{form.email}</strong>
+            Click it to activate your account, then sign in.
           </p>
 
-          {/* Demo mode notice — only visible inside Claude artifact preview */}
-          {IS_PREVIEW && (
-            <div style={{ background:"#FFFBEB", borderRadius:10, padding:"10px 14px",
-                          marginBottom:16, border:"1px solid #FCD34D", textAlign:"left" }}>
-              <p style={{ margin:0, fontSize:10, fontWeight:700, color:"#92400E" }}>
-                🔧 Demo mode — no email server connected
+          {role === "vendor" && (
+            <div style={{ background:"#F0F9FF", borderRadius:10, padding:"11px 14px",
+                          marginBottom:16, border:"1px solid #BAE6FD", textAlign:"left" }}>
+              <p style={{ margin:0, fontSize:11, fontWeight:700, color:"#075985" }}>
+                Your application is saved
               </p>
-              <p style={{ margin:"4px 0 0", fontSize:11, color:"#B45309", lineHeight:1.5 }}>
-                In production this code would be emailed automatically.
-                Your code is: <strong style={{ fontFamily:"monospace", fontSize:16, letterSpacing:"0.12em" }}>{devCode}</strong>
-              </p>
-            </div>
-          )}
-
-          {/* Email delivery failed — show the code so signup isn't a dead end */}
-          {!IS_PREVIEW && mailError && (
-            <div style={{ background:"#FEF2F2", borderRadius:10, padding:"10px 14px",
-                          marginBottom:16, border:"1px solid #FCA5A5", textAlign:"left" }}>
-              <p style={{ margin:0, fontSize:10, fontWeight:700, color:"#991B1B" }}>
-                ⚠ We couldn't send the verification email
-              </p>
-              <p style={{ margin:"4px 0 0", fontSize:11, color:"#B91C1C", lineHeight:1.5 }}>
-                The email service didn't respond, so your code may not arrive. Use this code
-                to finish signing up: <strong style={{ fontFamily:"monospace", fontSize:16, letterSpacing:"0.12em" }}>{devCode}</strong>
+              <p style={{ margin:"4px 0 0", fontSize:11, color:"#0369A1", lineHeight:1.55 }}>
+                Add your photos from your dashboard once you've confirmed — listings
+                with photos get far more requests.
               </p>
             </div>
           )}
 
-          {/* Code input */}
-          <input type="text" placeholder="Enter 6-digit code" value={verifyCode}
-            onChange={e=>{ setVerifyCode(e.target.value.replace(/\D/g,"")); setErr(""); }}
-            maxLength={6}
-            style={{ width:"100%", height:52, padding:"0 16px", border:`2px solid ${C.border}`,
-                     borderRadius:12, fontSize:24, fontWeight:800, letterSpacing:"0.18em",
-                     textAlign:"center", fontFamily:"monospace", color:C.black,
-                     background:"#F9FAFB", marginBottom:10 }} />
+          <div style={{ background:"#F9FAFB", borderRadius:10, padding:"11px 14px",
+                        marginBottom:18, border:`1px solid ${C.border}`, textAlign:"left" }}>
+            <p style={{ margin:0, fontSize:11, color:C.midGray, lineHeight:1.6 }}>
+              No email after a minute or two? Check spam. If it still hasn't arrived,
+              use <strong>Forgot password?</strong> on the sign-in screen — that also
+              confirms your address.
+            </p>
+          </div>
 
-          {err && <p style={{ fontSize:12, color:"#EF4444", fontWeight:600, marginBottom:10 }}>{err}</p>}
-
-          <button onClick={submitEmailVerify} disabled={loading || verifyCode.length < 6}
-            className="btn"
-            style={{ width:"100%", padding:"13px 0", borderRadius:12, background: verifyCode.length===6 ? C.orange : "#E5E7EB",
-                     color: verifyCode.length===6 ? "#fff" : C.lightGray,
-                     border:"none", fontSize:14, fontWeight:700, marginBottom:10,
-                     boxShadow: verifyCode.length===6 ? C.shadowButton : "none" }}>
-            {loading ? "Verifying…" : "Confirm email →"}
-          </button>
-          <button onClick={resendCode} className="btn"
-            style={{ background:"none", border:"none", fontSize:12, color:C.midGray,
-                     textDecoration:"underline" }}>
-            Resend code
+          <button onClick={onClose} className="btn"
+            style={{ width:"100%", padding:"13px 0", borderRadius:12, background:C.orange,
+                     color:"#fff", border:"none", fontSize:14, fontWeight:700,
+                     boxShadow:C.shadowButton }}>
+            Done
           </button>
         </div>
       </div>
@@ -4349,36 +4253,24 @@ function AuthModal({ onClose, onAuth }) {
           </div>
         </div>
 
-        {/* Service photos */}
-        <div style={{ background:"#F9FAFB", borderRadius:12, padding:"12px 14px",
-                      border:`1.5px dashed ${photoFiles.length > 0 ? C.orange : C.border}` }}>
-          <p style={{ margin:"0 0 4px", fontSize:11, fontWeight:700, color:C.black }}>
-            📸 Service photos <span style={{ color:"#EF4444" }}>*</span>
-            <span style={{ fontSize:10, fontWeight:400, color:C.midGray }}> — min 1, max 5, shown on your profile</span>
+        {/* Service photos — now added after confirming, not here.
+
+            Uploading to storage needs an authenticated session, and with email
+            confirmation switched on there is no session until the vendor clicks
+            the link in their email. A browser cannot hold File objects across
+            that round trip. Leaving the picker here would collect photos and
+            silently discard them, which is worse than not asking. */}
+        <div style={{ background:"#F0F9FF", borderRadius:12, padding:"12px 14px",
+                      border:"1px solid #BAE6FD" }}>
+          <p style={{ margin:"0 0 4px", fontSize:11, fontWeight:700, color:"#075985" }}>
+            📸 Photos come next
           </p>
-          <input type="file" accept="image/jpeg,image/png,image/webp" multiple
-            onChange={handlePhotoUpload}
-            style={{ fontSize:12, color:C.midGray, width:"100%", marginBottom:8 }} />
-          {photoFiles.length > 0 && (
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:4 }}>
-              {photoFiles.map((p, i) => (
-                <div key={i} style={{ position:"relative" }}>
-                  <img src={p.base64} alt={p.name}
-                    style={{ width:64, height:64, objectFit:"cover",
-                             borderRadius:8, border:`2px solid ${C.orange}` }} />
-                  <button onClick={() => setPhotoFiles(fs => fs.filter((_,j)=>j!==i))}
-                    className="btn"
-                    style={{ position:"absolute", top:-6, right:-6, width:18, height:18,
-                             borderRadius:"50%", background:"#EF4444", color:"#fff",
-                             border:"none", fontSize:10, padding:0,
-                             display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
-                </div>
-              ))}
-              <span style={{ fontSize:10, color:C.green, fontWeight:700, alignSelf:"center" }}>
-                {photoFiles.length}/5 selected — uploaded when you submit
-              </span>
-            </div>
-          )}
+          <p style={{ margin:0, fontSize:11, color:"#0369A1", lineHeight:1.6 }}>
+            Confirm your email, sign in, and add photos from your dashboard — you
+            can upload up to {MAX_PHOTOS} per listing and reorder them there.
+            Listings with photos get noticeably more requests, so it's worth doing
+            before you go live.
+          </p>
         </div>
 
         {/* Document upload */}
@@ -12614,13 +12506,80 @@ export default function PlugApp() {
   }, [openLayerCount, authModal, cartOpen, notifOpen, accountOpen, adminPanelOpen,
       vendorPage, activePackage, activeSub, search, activeCat]);
 
-  /* ── Page title updates per view ── */
+  /* ── The URL follows the view ──────────────────────────────────────────────
+     replaceState, not pushState, on purpose: the back-button guard above keeps
+     an exact count of the entries it has pushed, and adding entries here would
+     corrupt that accounting. Back still closes layers the way it always did —
+     the difference is only that the address bar now says where you are, so the
+     page can be linked to and indexed. */
+  function viewPath() {
+    if (vendorPage) return "/vendor/" + encodeURIComponent(vendorPage.id);
+    if (activeCat === "build") return "/build";
+    if (activeCat && activeCat !== "all") {
+      return "/c/" + encodeURIComponent(activeCat) +
+             (activeSub ? "/" + encodeURIComponent(activeSub) : "");
+    }
+    return "/";
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const want = viewPath();
+    try {
+      if (window.location.pathname !== want) {
+        window.history.replaceState(window.history.state, "", want);
+      }
+      /* Without this every page claims to be the homepage, which tells a search
+         engine to index one URL and discard the rest — the opposite of the
+         point of having URLs at all. */
+      const link = document.querySelector('link[rel="canonical"]');
+      if (link) link.setAttribute("href", SITE_ORIGIN + want);
+    } catch { /* history is unavailable in some embedded webviews */ }
+  }, [vendorPage, activeCat, activeSub]);
+
+
+  /* ── Title and description per view ────────────────────────────────────────
+     Now that each view has its own URL, each one needs its own title and
+     description too. A set of distinct URLs that all share the homepage title
+     is arguably worse than one URL: search engines see near-duplicate pages and
+     pick one, and a shared link shows the wrong thing in the preview card. */
   useEffect(() => {
     const base = "PLUG — " + market.label;
-    if (vendorPage)   document.title = `${vendorPage.name} — ${base}`;
-    else if (activeCat === "build") document.title = `Build My Event — ${base}`;
-    else document.title = base;
-  }, [vendorPage, activeCat, market]);
+    const setMeta = (name, content) => {
+      const el = document.querySelector(`meta[name="${name}"]`);
+      if (el && content) el.setAttribute("content", content);
+    };
+
+    if (vendorPage) {
+      const what = vendorPage.serviceName || vendorPage.type || "event services";
+      document.title = `${vendorPage.name} — ${what} in ${market.label} | PLUG`;
+      setMeta("description",
+        `${vendorPage.name} — ${what} in ${market.label}. ` +
+        `Check availability and send a booking request on PLUG.`);
+      return;
+    }
+    if (activeCat === "build") {
+      document.title = `Build My Event — ${base}`;
+      setMeta("description",
+        `Plan your whole event in one place: venue, food, music, decor and ` +
+        `rentals in ${market.label}, all matched to your date and guest count.`);
+      return;
+    }
+    if (activeCat && activeCat !== "all") {
+      const label = (CATEGORIES.find(c => c.id === activeCat) || {}).label || activeCat;
+      const scope = activeSub ? `${activeSub} · ${label}` : label;
+      document.title = `${scope} in ${market.label} | PLUG`;
+      setMeta("description",
+        `Compare ${String(label).toLowerCase()} in ${market.label}. ` +
+        `See prices and availability, then send booking requests on PLUG.`);
+      return;
+    }
+    document.title = base;
+    setMeta("description",
+      `Build your whole event lineup in one place. Compare food trucks, DJs, ` +
+      `venues, decor and rentals in ${market.label}, then send every booking ` +
+      `request at once. Free to browse.`);
+  }, [vendorPage, activeCat, activeSub, market]);
 
   /* Security bootstrap — iframe-bust + URL sanitizer
      NOTE: JS-layer origin blocking is intentionally disabled — window.location.origin
@@ -12704,11 +12663,45 @@ export default function PlugApp() {
      just closed (e.g. by clicking the logo to go home). */
   const restoredOnce = useRef(false);
   useEffect(() => {
+    /* A vendor URL is an explicit request and beats whatever this browser had
+       open last time. Without this, following a shared link could silently
+       open a different vendor. */
+    if (BOOT_ROUTE.kind === "vendor") return;
     if (restoredOnce.current || vendorPage || !openCardId || !dbVendors.length) return;
     restoredOnce.current = true;
     const found = dbVendors.find(v => v.id === openCardId);
     if (found) setVendorPage(found);
   }, [dbVendors, openCardId, vendorPage]);
+
+  /* ── The view is restored from the URL, once, on boot ───────────────────────
+     Deliberately placed AFTER the dbVendors declaration above. The first
+     version of this sat ~100 lines earlier, and its dependency array — which
+     React evaluates during render, not after — read dbVendors before the const
+     existed. That is a ReferenceError on every page load, which is a blank
+     site, and it is the same temporal-dead-zone shape that took the site down
+     once before. The lint rule caught it in CI this time. */
+  const routedOnce = useRef(false);
+  useEffect(() => {
+    if (routedOnce.current) return;
+    const r = BOOT_ROUTE;
+    if (r.kind === "build") { routedOnce.current = true; setActiveCat("build"); return; }
+    if (r.kind === "cat") {
+      routedOnce.current = true;
+      setActiveCat(r.cat);
+      if (r.sub) setActiveSub(r.sub);
+      return;
+    }
+    if (r.kind === "vendor") {
+      /* Listings arrive asynchronously, so a deep link has to wait for them
+         rather than resolving against an empty array and giving up. */
+      if (!dbVendors.length) return;
+      routedOnce.current = true;
+      const found = dbVendors.find(v => String(v.id) === r.id);
+      if (found) setVendorPage(found);
+      return;
+    }
+    routedOnce.current = true;
+  }, [dbVendors]);
 
   /* Preload availability for every live vendor (not just when a date is set),
      so the date and already-booked filters apply instantly without listings
@@ -13814,7 +13807,12 @@ export default function PlugApp() {
           </span>
           <span style={{ fontSize:11, color:"#555", marginLeft:6 }}>Houston, TX · © 2026</span>
         </div>
-        <div style={{ display:"flex", gap:20 }}>
+        {/* flexWrap is load-bearing. Eight links in a nowrap row measure ~521px,
+            which on a 375px phone made the whole DOCUMENT 543px wide — so every
+            page scrolled sideways and the header Sign up button sat off-screen.
+            One un-wrapped row in the footer was doing that to every screen on
+            the site. */}
+        <div style={{ display:"flex", gap:20, flexWrap:"wrap", justifyContent:"center" }}>
           {["About","How it works","Become a vendor","Help center","Cancellations and refunds","Terms","Privacy","Marketplace rules"].map(l=>(
             <span key={l} onClick={()=>{
                 if (l==="Become a vendor") { setAuthModal(true); return; }
