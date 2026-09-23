@@ -1,3 +1,5 @@
+import { rateLimit } from "./_rate-limit.js";
+
 /* PLUG - address verification.  Repo location: api/verify-address.js
 
    WHY THIS EXISTS
@@ -107,6 +109,12 @@ function rateLimited(ip) {
 }
 
 export default async function handler(req, res) {
+  /* This route already had a rate limit, but it counted in module memory, so
+     it bound one serverless instance for as long as that instance happened to
+     live. Vercel runs many. The shared counter below is the real one; the
+     in-process one can stay as a cheap first line that costs no round trip. */
+  if (!(await rateLimit(req, res, { route: "verify-address", max: 60, windowSeconds: 300 }))) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
