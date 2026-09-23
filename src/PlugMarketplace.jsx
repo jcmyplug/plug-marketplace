@@ -13121,7 +13121,7 @@ export default function PlugApp() {
      filtered — that is what VENDOR_FETCH_LIMIT bounds. Paging the query means
      moving those filters into Postgres so it can count and offset correctly.
      That is a real piece of work and it is not what this is. */
-  const PAGE_SIZE = 24;
+  const PAGE_SIZE = 3;   /* TEMPORARY — preview-only, to exercise Show more */
   const [shownCount, setShownCount] = useState(PAGE_SIZE);
 
   /* Any change to what is being searched for starts the list again. Without
