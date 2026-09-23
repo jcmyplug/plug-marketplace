@@ -2027,6 +2027,19 @@ function dbVendorToCard(v) {
   };
 }
 
+/* Hard ceiling on one catalogue read. Nine listings today, so this changes
+   nothing now — that is the point of setting it now rather than after it hurts.
+   Without a limit the query says "every approved service row there has ever
+   been", and PostgREST will happily answer that: the browser parses the lot,
+   builds a card object for each, and holds them all. The cost lands on the
+   visitor's phone and on your Supabase egress, and it grows with your success.
+
+   500 is chosen to be far above any plausible Houston catalogue for a long
+   while and far below a number that would hurt a phone. If it is ever actually
+   reached, the honest fix is server-side filtering and paging (see the note on
+   PAGE_SIZE below), not a bigger number here. */
+const VENDOR_FETCH_LIMIT = 500;
+
 async function getApprovedVendors() {
   if (IS_PREVIEW) return [];
   /* Preferred path: one card per SERVICE (a vendor can offer many).
@@ -2040,6 +2053,7 @@ async function getApprovedVendors() {
        the response key unchanged so nothing downstream has to know. */
     .select("*, vendor_profiles:vendor_public!inner(*)")
     .order("created_at", { ascending: false })
+    .limit(VENDOR_FETCH_LIMIT)
     .get();
   if (!error && Array.isArray(data) && data.length) {
     const cards = data
@@ -2057,6 +2071,7 @@ async function getApprovedVendors() {
     .select("*")
     .eq("verification_status", "approved")
     .order("created_at", { ascending: false })
+    .limit(VENDOR_FETCH_LIMIT)
     .get();
   if (legErr) console.warn("[PLUG] getApprovedVendors legacy read failed:", legErr, "— check vendor_profiles public read policy (run vendor-public-read.sql).");
   const cards = (legacy || []).map(dbVendorToCard);
@@ -2800,6 +2815,61 @@ async function getVendorAvailability(vendorId) {
     (booked || []).forEach(b => { if (b.event_date) confirmed.add(b.event_date); });
   } catch { /* table/columns may lag — fall back to calendar rows only */ }
   return { blocked, confirmed: [...confirmed] };
+}
+
+/* Availability for many vendors at once.
+
+   The grid used to call getVendorAvailability once per vendor, sequentially,
+   awaiting each before starting the next — and that function itself makes two
+   requests. So the cost of loading the marketplace was 2N round trips in
+   series. At nine vendors nobody notices. At two hundred it is four hundred
+   requests one after another, which on a phone is not slow, it is broken.
+
+   This asks the same two questions for a batch of vendors and groups the answer
+   client-side. Chunked because vendor ids go in the query string and a URL has
+   a practical length limit — 100 uuids is comfortably inside it, and the chunks
+   run in parallel, so 200 vendors costs 4 requests instead of 400.
+
+   Returns the same { blocked, confirmed } shape per id, and includes an entry
+   for every id asked about. That matters: the filter treats `undefined` as
+   "not loaded yet, don't hide this vendor", so a vendor silently missing from
+   the result would be permanently treated as available. */
+async function getVendorAvailabilityBulk(vendorIds) {
+  const ids = [...new Set((vendorIds || []).filter(Boolean))];
+  const out = {};
+  ids.forEach(id => { out[id] = { blocked: [], confirmed: new Set() }; });
+  if (!ids.length) return {};
+
+  const CHUNK = 100;
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+
+  await Promise.all(chunks.map(async chunk => {
+    try {
+      const { data } = await sb.from("vendor_availability")
+        .select("vendor_id, date, status").in("vendor_id", chunk).get();
+      (data || []).forEach(r => {
+        const slot = out[r.vendor_id];
+        if (!slot) return;
+        if (r.status === "blocked")        slot.blocked.push(r.date);
+        else if (r.status === "confirmed") slot.confirmed.add(r.date);
+      });
+    } catch { /* leave this chunk empty rather than failing the whole load */ }
+    try {
+      const { data: booked } = await sb.from("vendor_booked_dates")
+        .select("vendor_id, event_date").in("vendor_id", chunk).get();
+      (booked || []).forEach(b => {
+        const slot = out[b.vendor_id];
+        if (slot && b.event_date) slot.confirmed.add(b.event_date);
+      });
+    } catch { /* same */ }
+  }));
+
+  const final = {};
+  ids.forEach(id => {
+    final[id] = { blocked: out[id].blocked, confirmed: [...out[id].confirmed] };
+  });
+  return final;
 }
 
 async function setVendorAvailability(vendorId, avail) {
@@ -12728,9 +12798,12 @@ export default function PlugApp() {
     if (!missing.length) return;
     let cancelled = false;
     (async () => {
-      const found = {};
-      for (const id of missing) {
-        try { found[id] = await getVendorAvailability(id); } catch { found[id] = { blocked:[], confirmed:[] }; }
+      let found;
+      try { found = await getVendorAvailabilityBulk(missing); }
+      catch {
+        /* Mark them loaded-but-empty rather than leaving them undefined, or
+           this effect re-runs forever against the same failing ids. */
+        found = Object.fromEntries(missing.map(id => [id, { blocked:[], confirmed:[] }]));
       }
       if (!cancelled) setAvailByVendor(prev => ({ ...prev, ...found }));
     })();
@@ -13029,6 +13102,37 @@ export default function PlugApp() {
     /* Keep live listings visible near the top so new vendors get discovered. */
     return [...list].sort((a,b)=>((b.feat?1:0)+(b.isLive?1:0))-((a.feat?1:0)+(a.isLive?1:0)));
   }, [activeCat, activeSub, q, sortBy, filters, activePackage, dbVendors, qWhere, qWhen, qGuests, qEventType, availByVendor]);
+
+  /* ── Paging the grid (checklist item 23) ───────────────────────────────────
+     Every matching listing used to be rendered at once. Nine of them, so it has
+     never been visible — which is exactly why it is worth fixing before it is.
+     A card is not cheap: photo, rating, badges, price, availability, two
+     buttons. A few hundred of them is a slow scroll on a mid-range phone and a
+     lot of images racing for the same connection.
+
+     Deliberately "Load more" and not numbered pages. The filters above the grid
+     are how people narrow this catalogue; page 2 of 7 invites you to hunt
+     through pages instead, and it breaks the back button's meaning now that
+     views have URLs. Load more keeps one scrollable result list.
+
+     HONEST SCOPE: this pages the RENDER, not the query. Area, date, capacity,
+     guest count and availability are all evaluated in the browser over the
+     whole catalogue, so the rows still have to arrive before anything can be
+     filtered — that is what VENDOR_FETCH_LIMIT bounds. Paging the query means
+     moving those filters into Postgres so it can count and offset correctly.
+     That is a real piece of work and it is not what this is. */
+  const PAGE_SIZE = 24;
+  const [shownCount, setShownCount] = useState(PAGE_SIZE);
+
+  /* Any change to what is being searched for starts the list again. Without
+     this, narrowing a search while scrolled deep would leave you looking at a
+     short list that claims to be truncated. */
+  useEffect(() => {
+    setShownCount(PAGE_SIZE);
+  }, [activeCat, activeSub, q, sortBy, filters, activePackage, qWhere, qWhen, qGuests, qEventType]);
+
+  const visible = useMemo(() => filtered.slice(0, shownCount), [filtered, shownCount]);
+  const moreCount = Math.max(0, filtered.length - visible.length);
 
   /* A search that returns nothing is the most useful thing this marketplace can
      tell you: it is a customer who wanted something you do not have yet, and it
@@ -13769,7 +13873,7 @@ export default function PlugApp() {
                     )}
                   </div>
                 )}
-                {filtered.map(v=><VCard key={v.id} v={v} inCart={!!cart.find(c=>c.id===v.id)} isFav={favorites.includes(v.id)} onAdd={addToCart} onRemove={rmFromCart} onView={(vv)=>viewVendor(vv||v)} onToggleFav={handleToggleFav} />)}
+                {visible.map(v=><VCard key={v.id} v={v} inCart={!!cart.find(c=>c.id===v.id)} isFav={favorites.includes(v.id)} onAdd={addToCart} onRemove={rmFromCart} onView={(vv)=>viewVendor(vv||v)} onToggleFav={handleToggleFav} />)}
                 {filtered.length===0 && (
                   <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"64px 0" }}>
                     <div style={{ marginBottom:12, display:"flex", justifyContent:"center" }}><Emoji e="🔍" size={40} /></div>
@@ -13783,6 +13887,23 @@ export default function PlugApp() {
                   </div>
                 )}
               </div>
+
+              {/* Says how many are left, not just "Load more". A count is the
+                  difference between "there is more" and "there are 137 more,
+                  narrow your filters" — the second one is actionable. */}
+              {moreCount > 0 && (
+                <div style={{ textAlign:"center", marginTop:28 }}>
+                  <button onClick={() => setShownCount(n => n + PAGE_SIZE)} className="btn"
+                    style={{ background:"#fff", color:C.black, border:`1px solid ${C.border}`,
+                             borderRadius:99, padding:"12px 28px", fontSize:14, fontWeight:700,
+                             letterSpacing:"-0.01em" }}>
+                    Show {Math.min(PAGE_SIZE, moreCount)} more
+                  </button>
+                  <p style={{ margin:"10px 0 0", fontSize:12, color:C.midGray }}>
+                    Showing {visible.length} of {filtered.length}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
