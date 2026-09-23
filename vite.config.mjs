@@ -51,10 +51,54 @@ export default defineConfig(function (config) {
       outDir: "build",
       assetsDir: "static",
       sourcemap: false,
-      /* One very large component in one chunk. The warning is accurate and
-         there is nothing to learn from it on every build until routing lands
-         and the code can actually be split. */
+      /* One very large component in one chunk. Splitting it for real means
+         extracting the vendor dashboard and admin panel into their own modules
+         so they can be loaded on demand — most visitors never open either.
+         That is a refactor with its own deploy, not a config change, and it is
+         deliberately not done here. Until then the warning is accurate and
+         there is nothing to learn from it on every build. */
       chunkSizeWarningLimit: 2000,
+
+      rollupOptions: {
+        output: {
+          /* ─── CACHE SPLIT (checklist item 6, part one) ──────────────────────
+             React and react-dom go in their own chunk.
+
+             BE CLEAR ABOUT WHAT THIS DOES AND DOES NOT DO. It does not make the
+             first visit smaller — a new visitor still downloads the same bytes,
+             now in two files instead of one. What it changes is the SECOND
+             visit, and every visit after a deploy.
+
+             Assets here are content-hashed and cached immutably for a year by
+             vercel.json. One chunk means one hash: change a line of app code and
+             the hash changes, so a returning visitor re-downloads React too,
+             even though React did not change. React and react-dom are roughly
+             140KB of the bundle and they change a few times a year, while app
+             code changes several times a day. Separating them means a deploy
+             re-downloads only the part that actually moved.
+
+             Everything else stays in the main chunk on purpose. There are only
+             three direct dependencies (see DEPENDENCY-AUDIT.md), so there is no
+             third "vendor" bundle worth carving out, and inventing one would
+             add a request for no benefit.
+
+             Matching by path rather than the shorter `{ react: ["react",
+             "react-dom"] }` form on purpose. That form names package ENTRY
+             points, which misses react-dom/client and react/jsx-runtime — both
+             of which this app uses — and, more importantly, misses `scheduler`,
+             which react-dom depends on. Leaving scheduler in the app chunk is
+             the known way to get a circular import between the two chunks and a
+             blank page that the build reports as successful. */
+          manualChunks(id) {
+            if (id.includes("node_modules/react-dom/") ||
+                id.includes("node_modules/react/") ||
+                id.includes("node_modules/scheduler/")) {
+              return "react";
+            }
+            return undefined;   // everything else: let Rollup decide
+          },
+        },
+      },
     },
     server: { port: 3000 },
     preview: { port: 3000 },
