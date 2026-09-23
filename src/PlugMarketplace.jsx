@@ -861,6 +861,33 @@ function parseSchedule(s) {
   return { days, blocks: foundBlocks.length ? foundBlocks : null };
 }
 
+/* Every hour block a booking actually touches, not just the one it starts in.
+   A vendor who works evenings only cannot take 8pm–1am: that runs through
+   Evening AND Late night, and they only cover the first. Checking the start
+   time alone said yes to exactly that booking.
+
+   An end time landing exactly on the hour does not reach into it — 7pm–10pm is
+   Evening, not Evening plus Late night. An end at or before the start means the
+   booking runs past midnight. */
+function blocksForSpan(startTime, endTime) {
+  const first = blockForTime(startTime);
+  if (!first) return [];
+  if (!endTime || !/^\d{1,2}:\d{2}/.test(endTime)) return [first];
+  const sh = parseInt(startTime.split(":")[0], 10);
+  const [ehRaw, emRaw] = endTime.split(":");
+  const eh = parseInt(ehRaw, 10);
+  const em = parseInt(emRaw || "0", 10);
+  let span = (eh + (em > 0 ? 1 : 0)) - sh;
+  if (span <= 0) span += 24;                 // finishes the next day
+  span = Math.min(span, 24);
+  const out = [];
+  for (let i = 0; i < span; i++) {
+    const b = blockForTime(`${String((sh + i) % 24).padStart(2, "0")}:00`);
+    if (b && !out.includes(b)) out.push(b);
+  }
+  return out;
+}
+
 /* Which hour block a "HH:MM" start time falls into. */
 function blockForTime(t) {
   if (!t || !/^\d{1,2}:\d{2}/.test(t)) return null;
@@ -936,7 +963,7 @@ function noticeShortfallReason(dateStr, startTime, hours) {
    Checks that the date has not already passed, calendar-blocked dates, dates
    already confirmed, the weekdays the vendor works, the hour blocks they work,
    and the advance notice they require. */
-function vendorConflicts(vendor, avail, dateStr, startTime) {
+function vendorConflicts(vendor, avail, dateStr, startTime, endTime) {
   const out = [];
   if (!dateStr) return out;
   const past = pastEventReason(dateStr, startTime);
@@ -954,8 +981,12 @@ function vendorConflicts(vendor, avail, dateStr, startTime) {
     out.push(`doesn't work ${full}`);
   }
   if (blocks && startTime) {
-    const b = blockForTime(startTime);
-    if (b && !blocks.includes(b)) out.push(`doesn't work ${b.toLowerCase()}s`);
+    /* Every block the booking runs through must be one the vendor works, not
+       just the block it starts in. */
+    const missing = blocksForSpan(startTime, endTime).filter(b => !blocks.includes(b));
+    if (missing.length) {
+      out.push(`doesn't work ${missing.map(b => `${b.toLowerCase()}s`).join(" or ")}`);
+    }
   }
   return out;
 }
@@ -6804,8 +6835,11 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
     guests: String(wizGuests || ""),
     eventType: evt?.label || "Event",
   });
-  /* The four choices every later step is filtered by. */
-  const wizCtx = { city: wizCity, date: wizDate, startTime: wizStart, guests: wizGuests };
+  /* The choices every later step is filtered by. endTime is included so a
+     vendor is checked against every hour block the event runs through, not
+     just the one it starts in. */
+  const wizCtx = { city: wizCity, date: wizDate, startTime: wizStart,
+                   endTime: wizEnd, guests: wizGuests };
 
   function chooseEvent(id) {
     setEventId(id);
@@ -7014,18 +7048,69 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
   if (phase === "cats") {
     const answered = answers[curCat];
     const vendors = answered === "yes" ? vendorsFor(curCat, eventId, wizCtx) : [];
-    /* An empty list must say what is blocking it. By this point the customer
-       has made four choices and has no way of knowing which one is fatal;
-       "no results" sends them away, "3 fit at 150 guests" keeps them here.
-       Each line re-runs the same filter with one choice dropped. */
-    const relaxed = (answered === "yes" && vendors.length === 0) ? [
-      { key:"guests", n: vendorsFor(curCat, eventId, { ...wizCtx, guests:"" }).length,
-        label:`you allow a different guest count (you asked for ${wizGuests})` },
-      { key:"date",   n: vendorsFor(curCat, eventId, { ...wizCtx, date:"", startTime:"" }).length,
-        label:"you move the date" },
-      { key:"city",   n: vendorsFor(curCat, eventId, { ...wizCtx, city:"" }).length,
-        label:`you look beyond ${wizCity}` },
-    ].filter(r => r.n > 0) : [];
+    /* An empty list must say what is blocking it AND name the value that would
+       unblock it. "Allow a different guest count" leaves the customer guessing
+       at the very moment they are deciding whether to give up; "bring it down
+       to 100 guests" is something they can act on in one tap. Only computed
+       when the list is actually empty, so the extra passes cost nothing in the
+       normal case. */
+    let relaxed = [];
+    if (answered === "yes" && vendors.length === 0) {
+      const out = [];
+
+      /* Guests — say the number, and in which direction. A caterer with a
+         50-person minimum and a venue that holds 100 are different problems. */
+      const byGuests = vendorsFor(curCat, eventId, { ...wizCtx, guests: "" });
+      if (byGuests.length) {
+        const want = Number(wizGuests) || 0;
+        const fitsAt = g => byGuests.filter(v =>
+          (v.capacityMax == null || g <= v.capacityMax) &&
+          (v.capacityMin == null || g >= v.capacityMin)).length;
+        const ceilings = byGuests.map(v => v.capacityMax).filter(n => n != null && n < want);
+        const floors   = byGuests.map(v => v.capacityMin).filter(n => n != null && n > want);
+        if (ceilings.length) {
+          const best = Math.max(...ceilings);
+          out.push({ key:"guests", n: fitsAt(best), label:`you bring it down to ${best} guests` });
+        } else if (floors.length) {
+          const best = Math.min(...floors);
+          out.push({ key:"guests", n: fitsAt(best), label:`you go up to ${best} guests` });
+        } else {
+          out.push({ key:"guests", n: byGuests.length, label:"you change the guest count" });
+        }
+      }
+
+      /* Date — name the nearest one that actually works, rather than telling
+         them to go hunting through a calendar. */
+      if (wizDate) {
+        const base = new Date(`${wizDate}T00:00:00`);
+        for (let i = 1; i <= 60; i++) {
+          const dt = new Date(base);
+          dt.setDate(dt.getDate() + i);
+          const d = isoDate(dt);
+          const hit = vendorsFor(curCat, eventId, { ...wizCtx, date: d });
+          if (hit.length) {
+            out.push({ key:"date", n: hit.length,
+              label:`you move to ${new Date(`${d}T00:00:00`).toLocaleDateString("en-US",
+                      { weekday:"long", month:"short", day:"numeric" })}` });
+            break;
+          }
+        }
+      }
+
+      /* Area — name where these vendors actually cover, read off their own
+         service areas rather than guessed. */
+      const byCity = vendorsFor(curCat, eventId, { ...wizCtx, city: "" });
+      if (byCity.length) {
+        const where = [...new Set(byCity.flatMap(v =>
+          String(v.serviceAreas || v.bizCity || "").split(",").map(s => s.trim()).filter(Boolean)))]
+          .filter(c => c.toLowerCase() !== String(wizCity).toLowerCase())
+          .slice(0, 3);
+        out.push({ key:"city", n: byCity.length,
+          label: where.length ? `you look in ${where.join(", ")}` : `you look outside ${wizCity}` });
+      }
+
+      relaxed = out.filter(r => r.n > 0);
+    }
     return (
       <div className="fade-up" style={{ maxWidth:1040, margin:"0 auto" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
@@ -7123,7 +7208,11 @@ function BuildEventWizard({ vendorsFor, cart, addToCart, rmFromCart, onView, fav
               <button onClick={advance} className="btn"
                 style={{ padding:"12px 30px", borderRadius:12, border:"none", background:C.black,
                          color:"#fff", fontSize:14, fontWeight:800 }}>
-                {catIdx < walk.length-1 ? "Next category →" : "Review my event →"}
+                {vendors.length === 0
+                  ? (catIdx < walk.length-1
+                      ? `Skip ${curCatObj?.label?.toLowerCase()} for now →`
+                      : "Review my event →")
+                  : (catIdx < walk.length-1 ? "Next category →" : "Review my event →")}
               </button>
             </div>
           </div>
@@ -7464,14 +7553,20 @@ function CartPanel({ cart, onRemove, onUpdateItem, onClose, onSubmitRequests, us
   /* Which cart vendors can't take the chosen date/time, and why.
      Returns [{ vendor, reasons[] }]. Covers blocked dates, already-booked
      dates, non-working weekdays and non-working hour blocks. */
-  function vendorsUnavailableOn(dateStr, startT) {
+  /* endT is passed in rather than read from the closure: this function is
+     declared above the useState that creates `endTime`, and a hoisted function
+     reading a not-yet-initialised const is how the last temporal-dead-zone
+     crash got shipped. Explicit arguments cannot drift. */
+  function vendorsUnavailableOn(dateStr, startT, endT) {
     if (!dateStr) return [];
     return cart.map(v => {
       const id = v.vendorId || v.dbId || String(v.id).replace(/^db_/, "");
-      /* Check each vendor against the hour THEY are needed, not the hour the
-         event opens. A DJ who only works evenings is not a conflict because
-         the setup crew starts at 7am. */
-      const reasons = vendorConflicts(v, vendorAvail[id], dateStr, v.slotStart || startT);
+      /* Check each vendor against the hours THEY are needed, not the hours the
+         event runs. A DJ who only works evenings is not a conflict because the
+         setup crew starts at 7am — and giving them their own slot is what makes
+         the whole-span check below fair rather than punishing. */
+      const reasons = vendorConflicts(v, vendorAvail[id], dateStr,
+        v.slotStart || startT, v.slotEnd || endT);
       return reasons.length ? { vendor: v, reasons } : null;
     }).filter(Boolean);
   }
@@ -7621,7 +7716,7 @@ function CartPanel({ cart, onRemove, onUpdateItem, onClose, onSubmitRequests, us
         return;
       }
     }
-    const busy = vendorsUnavailableOn(eventDate, startTime);
+    const busy = vendorsUnavailableOn(eventDate, startTime, endTime);
     if (busy.length) { setErr(conflictMessage(busy)); return; }
     setSubmitting(true);
     track("booking_submitted", { vendors: cart.length, guests: Number(String(eventGuests).replace(/[^0-9]/g,"")) || 0 });
@@ -7833,7 +7928,7 @@ function CartPanel({ cart, onRemove, onUpdateItem, onClose, onSubmitRequests, us
                     </label>
                     <ClickCalendar value={eventDate} allowDate={allowDate} onChange={(d) => {
                       setEventDate(d);
-                      const busy = vendorsUnavailableOn(d, startTime);
+                      const busy = vendorsUnavailableOn(d, startTime, endTime);
                       setErr(busy.length ? conflictMessage(busy) : "");
                     }} />
                   </div>
@@ -7995,7 +8090,7 @@ function CartPanel({ cart, onRemove, onUpdateItem, onClose, onSubmitRequests, us
                       <TimeGrid value={startTime} allowTime={allowTime} onChange={(t) => {
                         setStartTime(t);
                         if (endTime && endTime <= t) setEndTime("");
-                        const busy = vendorsUnavailableOn(eventDate, t);
+                        const busy = vendorsUnavailableOn(eventDate, t, endTime);
                         setErr(busy.length ? conflictMessage(busy) : "");
                       }} />
                     </div>
@@ -8135,7 +8230,7 @@ function CartPanel({ cart, onRemove, onUpdateItem, onClose, onSubmitRequests, us
               </div>
 
               {(() => {
-                const conflicts = vendorsUnavailableOn(eventDate, startTime);
+                const conflicts = vendorsUnavailableOn(eventDate, startTime, endTime);
                 const blocked   = !!user && (!eventDate || conflicts.length > 0);
                 const disabled  = submitting || blocked;
                 return (
@@ -12772,12 +12867,12 @@ export default function PlugApp() {
      Demo catalog vendors have no real calendar, so they're never date-filtered.
      Uses the shared vendorConflicts() so search matches the cart's rules:
      blocked dates, already-booked dates, and non-working days. */
-  function matchesWhen(v, when, startT) {
+  function matchesWhen(v, when, startT, endT) {
     if (!when) return true;
     if (!v.isLive) return true;                 // demo vendors have no live calendar
     const avail = availByVendor[v.vendorId];
     if (avail === undefined) return true;        // not loaded yet — don't hide prematurely
-    return vendorConflicts(v, avail, when, startT || "").length === 0;
+    return vendorConflicts(v, avail, when, startT || "", endT || "").length === 0;
   }
 
   const filtered = useMemo(() => {
@@ -13417,7 +13512,7 @@ export default function PlugApp() {
                   String(v.cat || "").toLowerCase() === catId &&
                   matchesEventType(v, eventId) &&
                   matchesWhere(v, ctx.city || "") &&
-                  matchesWhen(v, ctx.date || "", ctx.startTime || "") &&
+                  matchesWhen(v, ctx.date || "", ctx.startTime || "", ctx.endTime || "") &&
                   matchesGuests(v, ctx.guests || ""));
               }}
               cart={cart}
