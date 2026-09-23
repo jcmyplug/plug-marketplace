@@ -13963,7 +13963,12 @@ export default function PlugApp() {
           </span>
           <span style={{ fontSize:11, color:"#555", marginLeft:6 }}>Houston, TX · © 2026</span>
         </div>
-        <div style={{ display:"flex", gap:20 }}>
+        {/* flexWrap is load-bearing. Eight links in a nowrap row measure ~521px,
+            which on a 375px phone made the whole DOCUMENT 543px wide — so every
+            page scrolled sideways and the header Sign up button sat off-screen.
+            One un-wrapped row in the footer was doing that to every screen on
+            the site. */}
+        <div style={{ display:"flex", gap:20, flexWrap:"wrap", justifyContent:"center" }}>
           {["About","How it works","Become a vendor","Help center","Cancellations and refunds","Terms","Privacy","Marketplace rules"].map(l=>(
             <span key={l} onClick={()=>{
                 if (l==="Become a vendor") { setAuthModal(true); return; }
