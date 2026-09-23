@@ -12694,13 +12694,48 @@ export default function PlugApp() {
   }, [vendorPage, activeCat, activeSub]);
 
 
-  /* ── Page title updates per view ── */
+  /* ── Title and description per view ────────────────────────────────────────
+     Now that each view has its own URL, each one needs its own title and
+     description too. A set of distinct URLs that all share the homepage title
+     is arguably worse than one URL: search engines see near-duplicate pages and
+     pick one, and a shared link shows the wrong thing in the preview card. */
   useEffect(() => {
     const base = "PLUG — " + market.label;
-    if (vendorPage)   document.title = `${vendorPage.name} — ${base}`;
-    else if (activeCat === "build") document.title = `Build My Event — ${base}`;
-    else document.title = base;
-  }, [vendorPage, activeCat, market]);
+    const setMeta = (name, content) => {
+      const el = document.querySelector(`meta[name="${name}"]`);
+      if (el && content) el.setAttribute("content", content);
+    };
+
+    if (vendorPage) {
+      const what = vendorPage.serviceName || vendorPage.type || "event services";
+      document.title = `${vendorPage.name} — ${what} in ${market.label} | PLUG`;
+      setMeta("description",
+        `${vendorPage.name} — ${what} in ${market.label}. ` +
+        `Check availability and send a booking request on PLUG.`);
+      return;
+    }
+    if (activeCat === "build") {
+      document.title = `Build My Event — ${base}`;
+      setMeta("description",
+        `Plan your whole event in one place: venue, food, music, decor and ` +
+        `rentals in ${market.label}, all matched to your date and guest count.`);
+      return;
+    }
+    if (activeCat && activeCat !== "all") {
+      const label = (CATEGORIES.find(c => c.id === activeCat) || {}).label || activeCat;
+      const scope = activeSub ? `${activeSub} · ${label}` : label;
+      document.title = `${scope} in ${market.label} | PLUG`;
+      setMeta("description",
+        `Compare ${String(label).toLowerCase()} in ${market.label}. ` +
+        `See prices and availability, then send booking requests on PLUG.`);
+      return;
+    }
+    document.title = base;
+    setMeta("description",
+      `Build your whole event lineup in one place. Compare food trucks, DJs, ` +
+      `venues, decor and rentals in ${market.label}, then send every booking ` +
+      `request at once. Free to browse.`);
+  }, [vendorPage, activeCat, activeSub, market]);
 
   /* Security bootstrap — iframe-bust + URL sanitizer
      NOTE: JS-layer origin blocking is intentionally disabled — window.location.origin
