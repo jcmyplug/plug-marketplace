@@ -838,14 +838,14 @@ function venueTypeLabel(id) {
   return v ? `${v.icon} ${v.label}` : "";
 }
 /* "14:30" → "2:30 PM". Leaves anything unexpected untouched. */
-function fmtTime12(t) {
+export function fmtTime12(t) {
   if (!t || !/^\d{1,2}:\d{2}/.test(t)) return t || "";
   const [h, m] = t.split(":").map(Number);
   const ap = h >= 12 ? "PM" : "AM";
   const h12 = ((h + 11) % 12) + 1;
   return `${h12}:${String(m).padStart(2, "0")} ${ap}`;
 }
-function fmtTimeRange(start, end) {
+export function fmtTimeRange(start, end) {
   const s = fmtTime12(start), e = fmtTime12(end);
   if (s && e) return `${s} – ${e}`;
   return s || e || "";
@@ -893,7 +893,7 @@ function composeSchedule(days = [], blocks = []) {
 /* Parse a composed schedule string back into { days, blocks }.
    Only parses our own composed format (identified by the " · " separator) —
    legacy free-text schedules return nulls so they never block a booking. */
-function parseSchedule(s) {
+export function parseSchedule(s) {
   if (!s || typeof s !== "string" || !s.includes("·")) return { days: null, blocks: null };
   const [dayPart = "", blockPart = ""] = s.split("·").map(x => x.trim());
   let days;
@@ -914,7 +914,7 @@ function parseSchedule(s) {
    An end time landing exactly on the hour does not reach into it — 7pm–10pm is
    Evening, not Evening plus Late night. An end at or before the start means the
    booking runs past midnight. */
-function blocksForSpan(startTime, endTime) {
+export function blocksForSpan(startTime, endTime) {
   const first = blockForTime(startTime);
   if (!first) return [];
   if (!endTime || !/^\d{1,2}:\d{2}/.test(endTime)) return [first];
@@ -934,7 +934,7 @@ function blocksForSpan(startTime, endTime) {
 }
 
 /* Which hour block a "HH:MM" start time falls into. */
-function blockForTime(t) {
+export function blockForTime(t) {
   if (!t || !/^\d{1,2}:\d{2}/.test(t)) return null;
   const h = parseInt(t.split(":")[0], 10);
   if (h >= 6  && h < 12) return "Morning";
@@ -1008,7 +1008,7 @@ function noticeShortfallReason(dateStr, startTime, hours) {
    Checks that the date has not already passed, calendar-blocked dates, dates
    already confirmed, the weekdays the vendor works, the hour blocks they work,
    and the advance notice they require. */
-function vendorConflicts(vendor, avail, dateStr, startTime, endTime) {
+export function vendorConflicts(vendor, avail, dateStr, startTime, endTime) {
   const out = [];
   if (!dateStr) return out;
   const past = pastEventReason(dateStr, startTime);
@@ -1094,7 +1094,7 @@ function eventTypeLabel(id) {
   return t ? `${t.icon} ${t.label}` : id;
 }
 /* Normalize whatever is stored (array or JSON string) into an id array. */
-function parseEventTypes(raw) {
+export function parseEventTypes(raw) {
   let arr = raw;
   if (typeof raw === "string" && raw.trim()) { try { arr = JSON.parse(raw); } catch { return []; } }
   return Array.isArray(arr) ? arr.filter(Boolean).map(String) : [];
@@ -1102,7 +1102,7 @@ function parseEventTypes(raw) {
 /* Does this vendor serve the requested event type?
    No tags set = serves everything (so vendors aren't hidden until they opt in).
    Demo catalog vendors are never filtered by event type. */
-function matchesEventType(v, typeId) {
+export function matchesEventType(v, typeId) {
   if (!typeId) return true;
   const tags = parseEventTypes(v.eventTypes);
   if (!tags.length) return true;
