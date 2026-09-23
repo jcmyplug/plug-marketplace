@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       # There is no package-lock.json in the repo yet, so npm ci cannot run.
       # Swap this for npm ci (and add cache: npm above) once a lockfile lands.
