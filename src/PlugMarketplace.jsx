@@ -12693,29 +12693,6 @@ export default function PlugApp() {
     } catch { /* history is unavailable in some embedded webviews */ }
   }, [vendorPage, activeCat, activeSub]);
 
-  /* ── The view is restored from the URL, once, on boot ───────────────────── */
-  const routedOnce = useRef(false);
-  useEffect(() => {
-    if (routedOnce.current) return;
-    const r = BOOT_ROUTE;
-    if (r.kind === "build") { routedOnce.current = true; setActiveCat("build"); return; }
-    if (r.kind === "cat") {
-      routedOnce.current = true;
-      setActiveCat(r.cat);
-      if (r.sub) setActiveSub(r.sub);
-      return;
-    }
-    if (r.kind === "vendor") {
-      /* Listings arrive asynchronously, so a deep link has to wait for them
-         rather than resolving against an empty array and giving up. */
-      if (!dbVendors.length) return;
-      routedOnce.current = true;
-      const found = dbVendors.find(v => String(v.id) === r.id);
-      if (found) setVendorPage(found);
-      return;
-    }
-    routedOnce.current = true;
-  }, [dbVendors]);
 
   /* ── Page title updates per view ── */
   useEffect(() => {
@@ -12816,6 +12793,36 @@ export default function PlugApp() {
     const found = dbVendors.find(v => v.id === openCardId);
     if (found) setVendorPage(found);
   }, [dbVendors, openCardId, vendorPage]);
+
+  /* ── The view is restored from the URL, once, on boot ───────────────────────
+     Deliberately placed AFTER the dbVendors declaration above. The first
+     version of this sat ~100 lines earlier, and its dependency array — which
+     React evaluates during render, not after — read dbVendors before the const
+     existed. That is a ReferenceError on every page load, which is a blank
+     site, and it is the same temporal-dead-zone shape that took the site down
+     once before. The lint rule caught it in CI this time. */
+  const routedOnce = useRef(false);
+  useEffect(() => {
+    if (routedOnce.current) return;
+    const r = BOOT_ROUTE;
+    if (r.kind === "build") { routedOnce.current = true; setActiveCat("build"); return; }
+    if (r.kind === "cat") {
+      routedOnce.current = true;
+      setActiveCat(r.cat);
+      if (r.sub) setActiveSub(r.sub);
+      return;
+    }
+    if (r.kind === "vendor") {
+      /* Listings arrive asynchronously, so a deep link has to wait for them
+         rather than resolving against an empty array and giving up. */
+      if (!dbVendors.length) return;
+      routedOnce.current = true;
+      const found = dbVendors.find(v => String(v.id) === r.id);
+      if (found) setVendorPage(found);
+      return;
+    }
+    routedOnce.current = true;
+  }, [dbVendors]);
 
   /* Preload availability for every live vendor (not just when a date is set),
      so the date and already-booked filters apply instantly without listings
