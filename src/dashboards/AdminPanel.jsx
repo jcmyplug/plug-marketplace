@@ -1,8 +1,8 @@
-/* Extracted from PlugMarketplace.jsx on 23 September 2026 so it can be
-   loaded on demand. See the note on the lazy import in PlugMarketplace.jsx
-   for why the import points back at that file rather than at a shared
-   module. Nothing here was rewritten - the code is byte-identical to what
-   it replaced, so a behaviour change would be a bug, not a decision. */
+/* Extracted from PlugMarketplace.jsx on 23 September 2026 so it can be loaded
+   on demand. See the note on the lazy import in PlugMarketplace.jsx for why
+   the import points back at that file rather than at a shared module.
+   Nothing here was rewritten - the moved code is byte-identical to what it
+   replaced, so any behaviour change would be a bug, not a decision. */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 
@@ -12,8 +12,16 @@ import {
   MessagesPanel,
   RLS,
   SECURITY_HEADERS,
+  adminDeleteAccount,
+  adminListAccounts,
+  adminSendMessage,
+  adminSetBlocked,
+  getVendorApps,
   isOriginAllowed,
   maskEmail,
+  sendMessage,
+  setVendorStatus,
+  startConversation,
 } from "../PlugMarketplace.jsx";
 
 function SecurityConfigPanel() {
