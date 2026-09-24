@@ -1845,7 +1845,7 @@ function apiAuthHeaders() {
   return h;
 }
 
-async function loadSession() {
+export async function loadSession() {
   /* Returns the saved session object or null */
   return _loadSessionLocal();
 }
@@ -2115,7 +2115,7 @@ function toGuestCount(x) {
 }
 
 /* Every service belonging to this vendor, including inactive ones. */
-async function getMyServices(vendorId) {
+export async function getMyServices(vendorId) {
   if (IS_PREVIEW) return [];
   const { data, error } = await sb.from("vendor_services")
     .select("*").eq("vendor_id", vendorId)
@@ -2124,7 +2124,7 @@ async function getMyServices(vendorId) {
   return data || [];
 }
 
-async function saveService(vendorId, svc) {
+export async function saveService(vendorId, svc) {
   const row = {
     vendor_id:    vendorId,
     category:     svc.category || "food",
@@ -2172,7 +2172,7 @@ async function saveService(vendorId, svc) {
   return { ok: true };
 }
 
-async function deleteService(vendorId, serviceId) {
+export async function deleteService(vendorId, serviceId) {
   const { error } = await sb.from("vendor_services")
     .eq("id", serviceId).eq("vendor_id", vendorId).delete();
   if (error) return { ok: false, error: error.message || "Could not delete this service." };
@@ -2185,7 +2185,7 @@ async function deleteService(vendorId, serviceId) {
 /* ── Reviews (persisted, booking-gated, two-sided) ───────────────────────────
    Users review vendors and vendors review users, but only after a confirmed
    booking. Reviews are public; the subject may reply. See reviews-setup.sql. */
-async function getReviewsAbout(subjectId) {
+export async function getReviewsAbout(subjectId) {
   if (IS_PREVIEW || !subjectId) return [];
   const { data, error } = await sb.from("reviews")
     .select("*").eq("subject_id", subjectId)
@@ -2228,7 +2228,7 @@ async function canReviewSubject(authorId, subjectId, direction) {
 }
 
 /* Existing review by this author about this subject (to avoid duplicates). */
-async function existingReview(authorId, subjectId, direction) {
+export async function existingReview(authorId, subjectId, direction) {
   if (IS_PREVIEW || !authorId) return null;
   const { data } = await sb.from("reviews")
     .select("*").eq("author_id", authorId).eq("subject_id", subjectId)
@@ -2237,7 +2237,7 @@ async function existingReview(authorId, subjectId, direction) {
   return r ? { id: r.id, rating: r.rating, body: r.body, reply: r.reply } : null;
 }
 
-async function submitReviewDB({ bookingId, authorId, subjectId, direction, rating, body, dims,
+export async function submitReviewDB({ bookingId, authorId, subjectId, direction, rating, body, dims,
                                 showName, authorName }) {
   if (IS_PREVIEW) return { ok: true };
   const d = dims || {};
@@ -2388,7 +2388,7 @@ function dbServiceToCard(s, v) {
    Signup already captures capacity, project size, years in business, travel
    radius and service areas — those are loaded here so the editor is
    pre-filled ("autopopulated") rather than blank.                          */
-async function getMyListing(vendorId) {
+export async function getMyListing(vendorId) {
   if (IS_PREVIEW) return null;
   const { data } = await sb.from("vendor_profiles").select("*").eq("id", vendorId).single().get();
   return data || null;
@@ -2406,7 +2406,7 @@ async function saveMyListing(vendorId, patch) {
 
 /* Uploads an image to Supabase Storage bucket "vendor-photos" and returns its
    public URL. Requires the bucket to exist and be public (see setup SQL). */
-async function uploadVendorPhoto(vendorId, file, accessToken) {
+export async function uploadVendorPhoto(vendorId, file, accessToken) {
   if (IS_PREVIEW) return { url: null, error: "Photo upload isn't available in preview mode." };
   if (file.size > 5 * 1024 * 1024) return { url: null, error: `${file.name} is larger than 5 MB.` };
   const ext  = (file.name.split(".").pop() || "jpg").toLowerCase();
@@ -2454,7 +2454,7 @@ async function uploadVendorPhoto(vendorId, file, accessToken) {
 /* ── ADMIN MODERATION ─────────────────────────────────────────────────────
    Every action is authorised server-side by is_admin(), so a non-admin calling
    these gets rejected by the database regardless of what the UI allows. */
-async function adminListAccounts() {
+export async function adminListAccounts() {
   if (IS_PREVIEW) return [];
   const { data, error } = await sb.rpc("admin_list_accounts");
   if (error) { console.warn("[PLUG] admin_list_accounts failed — run admin-moderation-setup.sql", error); return []; }
@@ -2466,7 +2466,7 @@ async function adminListAccounts() {
   }));
 }
 
-async function adminSendMessage(targetId, kind, subject, message) {
+export async function adminSendMessage(targetId, kind, subject, message) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.rpc("admin_message", {
     target_id: targetId, kind, subject: subject || "", message,
@@ -2475,7 +2475,7 @@ async function adminSendMessage(targetId, kind, subject, message) {
   return { ok: true };
 }
 
-async function adminSetBlocked(targetId, blocked, reason) {
+export async function adminSetBlocked(targetId, blocked, reason) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.rpc("admin_set_blocked", {
     target_id: targetId, blocked, reason: reason || null,
@@ -2484,14 +2484,14 @@ async function adminSetBlocked(targetId, blocked, reason) {
   return { ok: true };
 }
 
-async function adminDeleteAccount(targetId) {
+export async function adminDeleteAccount(targetId) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.rpc("admin_delete_account", { target_id: targetId });
   if (error) return { ok: false, error: error.message || "Could not delete." };
   return { ok: true };
 }
 
-async function getVendorApps() {
+export async function getVendorApps() {
   const { data } = await sb.from("vendor_profiles")
     .select("id, business_name, biz_legal, category, verification_status, created_at, biz_city, biz_state, photo_count, doc_file_name")
     .order("created_at", { ascending: false })
@@ -2513,7 +2513,7 @@ async function getVendorStatus(vendorId) {
   return data?.verification_status || null;
 }
 
-async function setVendorStatus(vendorId, status, reason = "") {
+export async function setVendorStatus(vendorId, status, reason = "") {
   const { data, error } = await sb.from("vendor_profiles").eq("id", vendorId).update({
     verification_status: status,
     rejection_reason:    reason || null,
@@ -3045,7 +3045,7 @@ const BOOT_ROUTE = (() => {
 
 const SITE_ORIGIN = "https://www.my-plug.com";
 
-async function getNotifs(userId) {
+export async function getNotifs(userId) {
   if (IS_PREVIEW) {
     return (await _pGet("notif:" + userId)) || [];
   }
@@ -3064,7 +3064,7 @@ async function getNotifs(userId) {
   }));
 }
 
-async function markNotifsRead(userId) {
+export async function markNotifsRead(userId) {
   if (IS_PREVIEW) {
     const list = (await _pGet("notif:" + userId)) || [];
     await _pSet("notif:" + userId, list.map(n => ({ ...n, read: true, is_read: true })));
@@ -3340,7 +3340,7 @@ function conversationActive(c) {
   return Date.now() < cutoff.getTime();
 }
 
-async function startConversation({ otherId, kind = "user_vendor", serviceId, serviceName, subject, eventDate, bookingId, selfId }) {
+export async function startConversation({ otherId, kind = "user_vendor", serviceId, serviceName, subject, eventDate, bookingId, selfId }) {
   if (IS_PREVIEW || !otherId) return { ok: false, error: "Not available here." };
 
   /* Preferred: one server-side call that reuses an existing thread. */
@@ -3425,7 +3425,7 @@ async function getMessages(convId) {
   }));
 }
 
-async function sendMessage(convId, senderId, body) {
+export async function sendMessage(convId, senderId, body) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.from("messages")
     .insert({ conversation_id: convId, sender_id: senderId, body });
@@ -3475,7 +3475,7 @@ async function sendInquiry({ userId, vendorId, serviceId, serviceName, body, eve
   return { ok: true, conversationId: conv.id };
 }
 
-async function getVendorInquiries(vendorId) {
+export async function getVendorInquiries(vendorId) {
   if (IS_PREVIEW || !vendorId) return [];
   const { data, error } = await sb.from("inquiries")
     .select("*").eq("vendor_id", vendorId).order("created_at", { ascending: false }).get();
@@ -3493,7 +3493,7 @@ async function getVendorInquiries(vendorId) {
   }));
 }
 
-async function replyToInquiry(inquiryId, reply) {
+export async function replyToInquiry(inquiryId, reply) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.from("inquiries").eq("id", inquiryId)
     .update({ reply, reply_at: new Date().toISOString() });
@@ -10489,19 +10489,19 @@ function usePersistentState(key, initial) {
    either, and until now shipped both on first paint.
 
    THE IMPORT POINTS BACK AT THIS FILE, which looks circular and is. The two
-   modules import C, sb and a handful of shared components from here; this file
-   imports them only through import(), which runs after this module has finished
-   evaluating. So nothing is read before it exists.
+   modules import C, sb and the data helpers from here; this file reaches them
+   only through import(), which runs after this module has finished evaluating.
+   So nothing is read before it exists.
 
-   The alternative - hoisting all 30 shared symbols into a third module - moves
+   The alternative - hoisting all 53 shared symbols into a third module - moves
    another ~1,600 lines and produces exactly the same bundles, because shared
-   code stays in the main chunk either way. It is the tidier design and it is
-   worth doing when this file is split properly; it is not worth the extra risk
-   today, in a change whose whole value is that the moved code is untouched.
+   code stays in the main chunk either way. It is the tidier design and worth
+   doing when this file is split properly; it is not worth the extra risk in a
+   change whose entire value is that the moved code is untouched.
 
    Suspense fallback is deliberately plain. Both are behind a sign-in, on a fast
    path, and a skeleton that flashes for 80ms is worse than a line of text. */
-const AdminPanel     = lazy(() => import("./dashboards/AdminPanel.jsx"));
+const AdminPanel      = lazy(() => import("./dashboards/AdminPanel.jsx"));
 const VendorDashboard = lazy(() => import("./dashboards/VendorDashboard.jsx"));
 
 function DashboardLoading({ label }) {
