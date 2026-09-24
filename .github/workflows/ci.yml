@@ -23,14 +23,14 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+          cache: 'npm'
 
-      # There is no package-lock.json in the repo yet, so npm ci cannot run.
-      # Swap this for npm ci (and add cache: npm above) once a lockfile lands.
-      # This is the last thing standing between here and reproducible builds:
-      # without a lockfile two builds a week apart can resolve different
-      # transitive versions.
+      # npm ci, not npm install: it installs exactly the tree in
+      # package-lock.json and fails if package.json and the lockfile disagree.
+      # npm install would quietly reresolve and update the lockfile, which is
+      # the behaviour that made builds non-reproducible in the first place.
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # Rules live in eslint.config.mjs. ESLint 9 changed the default config
       # format and ESLint 10 removed the old one, so the eslintConfig block in
