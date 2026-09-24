@@ -10563,20 +10563,19 @@ export function MaintenanceScreen({ onStaff }) {
       font:"16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif",
     }}>
       <div style={{ maxWidth:440 }}>
-        <div style={{
-          fontSize:34, fontWeight:900, letterSpacing:"-0.03em", marginBottom:26,
-          background:"linear-gradient(135deg, #FF5C28 0%, #FF8C00 100%)",
-          WebkitBackgroundClip:"text", backgroundClip:"text", color:"transparent",
-        }}>PLUG</div>
+        {/* The real brand mark, not a word typed to look like one. */}
+        <div style={{ marginBottom:30 }}>
+          <PlugMark size={54} light />
+        </div>
 
         <h1 style={{ fontSize:26, fontWeight:800, letterSpacing:"-0.02em", margin:"0 0 12px" }}>
-          Down for maintenance
+          Down for Maintenance
         </h1>
         <p style={{ margin:"0 0 8px", color:"rgba(255,255,255,0.72)" }}>
-          We're making improvements to PLUG and will be back shortly.
+          We are making improvements to Your Plug and we will be back shortly.
         </p>
         <p style={{ margin:0, color:"rgba(255,255,255,0.45)", fontSize:14 }}>
-          Thanks for your patience — see you soon.
+          Thank you for your patience — see you soon.
         </p>
 
         <button
@@ -10592,52 +10591,73 @@ export function MaintenanceScreen({ onStaff }) {
   );
 }
 
-/* The switch itself. Only rendered for admins, on every page, so turning the
-   site off or back on is one click from wherever you happen to be. */
-function SiteSwitch({ isPrivate, onChange }) {
+/* The switch itself. Lives in the admin panel and nowhere else.
+
+   Being admin-only here is a convenience, not the control: site_go_private()
+   and site_go_public() both start with `if not is_admin() then raise`, so the
+   database refuses anyone else regardless of what any UI offers them. Hiding
+   the button keeps it out of the way; the database is what keeps it safe.
+
+   Self-contained on purpose — it reads its own status on mount rather than
+   being handed it, so it can be dropped into the admin panel (a separate
+   lazy-loaded module) without threading state across the boundary. */
+export function SiteSwitch() {
+  const [isPrivate, setIsPrivate] = useState(null);   // null = still loading
   const [busy, setBusy] = useState(false);
   const [msg,  setMsg]  = useState("");
+
+  useEffect(() => { getSiteStatus().then(s => setIsPrivate(s.private)); }, []);
 
   async function flip() {
     const turningOff = !isPrivate;
     if (turningOff && !window.confirm(
       "Take my-plug.com offline?\n\nEveryone except admins will see the " +
-      "\"Down for maintenance\" page until you turn it back on."
+      "\"Down for Maintenance\" page until you turn it back on."
     )) return;
     setBusy(true);
     const r = await setSitePublic(isPrivate);   // isPrivate === true means "open it"
     setBusy(false);
     if (!r.ok) { setMsg(r.error); return; }
     setMsg("");
-    onChange(!isPrivate);
+    setIsPrivate(!isPrivate);
   }
+
+  const off = isPrivate === true;
 
   return (
     <div style={{
-      position:"fixed", left:16, bottom:16, zIndex:9000,
-      display:"flex", alignItems:"center", gap:10,
-      background: isPrivate ? "#1A1A1A" : "rgba(255,255,255,0.96)",
-      color: isPrivate ? "#fff" : C.darkGray,
-      border:`1px solid ${isPrivate ? "#3a3a3a" : C.border}`,
-      borderRadius:999, padding:"8px 8px 8px 14px",
-      boxShadow:"0 6px 24px rgba(0,0,0,0.18)", fontSize:13, fontWeight:600,
+      border:`1px solid ${off ? "#FECACA" : C.border}`,
+      background: off ? C.redSoft : C.white,
+      borderRadius:14, padding:"16px 18px", marginBottom:18,
+      display:"flex", alignItems:"center", gap:14, flexWrap:"wrap",
     }}>
       <span style={{
-        width:8, height:8, borderRadius:999,
-        background: isPrivate ? C.red : C.green, flexShrink:0,
+        width:10, height:10, borderRadius:999, flexShrink:0,
+        background: isPrivate === null ? C.lightGray : (off ? C.red : C.green),
       }} />
-      <span>{isPrivate ? "Site is OFF" : "Site is live"}</span>
+      <div style={{ flex:1, minWidth:200 }}>
+        <div style={{ fontWeight:800, fontSize:15, color:C.darkGray }}>
+          {isPrivate === null ? "Checking site status…"
+            : off ? "The site is OFF" : "The site is live"}
+        </div>
+        <div style={{ fontSize:13, color:C.midGray, marginTop:2 }}>
+          {isPrivate === null ? " "
+            : off ? "Visitors see the Down for Maintenance page. Admins still see the full site."
+                  : "Anyone can browse and book on my-plug.com."}
+        </div>
+        {msg && <div style={{ fontSize:13, color:C.red, marginTop:6 }}>{msg}</div>}
+      </div>
       <button
         onClick={flip}
-        disabled={busy}
+        disabled={busy || isPrivate === null}
         style={{
-          border:"none", cursor: busy ? "wait" : "pointer", borderRadius:999,
-          padding:"6px 14px", fontSize:13, fontWeight:700,
-          background: isPrivate ? C.green : C.darkGray, color:"#fff",
-          opacity: busy ? 0.6 : 1,
+          border:"none", borderRadius:999, padding:"10px 20px",
+          fontSize:14, fontWeight:700, color:"#fff",
+          background: off ? C.green : C.darkGray,
+          cursor: (busy || isPrivate === null) ? "default" : "pointer",
+          opacity: (busy || isPrivate === null) ? 0.5 : 1,
         }}
-      >{busy ? "…" : (isPrivate ? "Turn on" : "Turn off")}</button>
-      {msg && <span style={{ color:C.red, fontWeight:500 }}>{msg}</span>}
+      >{busy ? "Working…" : (off ? "Turn the site on" : "Turn the site off")}</button>
     </div>
   );
 }
@@ -11506,14 +11526,6 @@ export default function PlugApp() {
       {/* ── AUTH MODAL ─────────────────────────────────────────────────── */}
       {/* ── SECURITY META HEADERS ──────────────────────────────────────────────── */}
       <SecurityMetaHeaders />
-
-      {/* ── THE ON/OFF SWITCH ──────────────────────────────────────────────
-          Admins only, on every page. When the site is off this is the only
-          thing on screen that differs from what a visitor would see, which is
-          the point: you are looking at the live site, not a preview of it. */}
-      {user?.type === "admin" && (
-        <SiteSwitch isPrivate={sitePrivate} onChange={setSitePrivate} />
-      )}
 
       {/* ── ADMIN PANEL ─────────────────────────────────────────────────────── */}
       {adminPanelOpen && user?.type === "admin" && (
