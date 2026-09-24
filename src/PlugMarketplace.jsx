@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 /* ══════════════════════════════════════════════════════════════════════════════
    PLUG MARKETPLACE
@@ -86,7 +86,7 @@ const PLUG_LOGO_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlgAAACzCAY
    PLUG_LOGO_PNG is now referenced by nothing. The production build's dead-code
    elimination should drop it; if you want it gone from source too, delete that
    one line by hand — it is too long to edit safely by search-and-replace. */
-function PlugMark({ size = 32, light = false }) {
+export function PlugMark({ size = 32, light = false }) {
   return (
     <span
       aria-label="PLUG"
@@ -147,7 +147,7 @@ function PlugMark({ size = 32, light = false }) {
    ADMIN SETUP KEY — required to register an administrator account.
    CHANGE THIS before deploying. In production, move it to a server-side env variable.
 ────────────────────────────────────────────────────────────────────────────── */
-const CORS_CONFIG = Object.freeze({
+export const CORS_CONFIG = Object.freeze({
   /*
    * Allowed origins — strings are exact matches, RegExp objects are tested with .test().
    * The app will HARD BLOCK any origin not on this list.
@@ -179,7 +179,7 @@ const CORS_CONFIG = Object.freeze({
 });
 
 /* Returns true if the given origin is on the allowlist */
-function isOriginAllowed(origin) {
+export function isOriginAllowed(origin) {
   /* Treat missing / empty / "null" string all as the sandboxed-iframe case */
   const o = (!origin || origin === "null") ? "null" : origin;
   return CORS_CONFIG.allowedOrigins.some(rule =>
@@ -237,7 +237,7 @@ function OriginBlockedScreen() {
    NOTE: frame-ancestors, HSTS, X-Content-Type-Options, Permissions-Policy
    and Cache-Control can ONLY be enforced via HTTP response headers on the server.
 ────────────────────────────────────────────────────────────────────────────── */
-const SECURITY_HEADERS = Object.freeze({
+export const SECURITY_HEADERS = Object.freeze({
   /* Applied as <meta> tags — partial enforcement, no frame-ancestors support */
   meta: {
     csp: [
@@ -465,7 +465,7 @@ function fmtCurrency(amount, countryCode = "US") {
   } catch { return `${c.symbol}${amount}`; }
 }
 
-const GLOBAL_CSS = `
+export const GLOBAL_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;0,900;1,400&family=Inter:wght@400;500;600;700&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #fff; }
@@ -684,7 +684,7 @@ select:focus:not(:focus-visible) { outline: none; }
 
 /* ─── DESIGN TOKENS ─────────────────────────────────────────────────────────── */
 const BUILD_VERSION = "v5-2026-08-06-anon-read-ok";
-const C = {
+export const C = {
   /* ── Primary ── */
   orange: "#FF5C28", orangeHov: "#E84E1E", orangeSoft: "#FFF1EC",
   orangeBorder: "rgba(255,92,40,0.22)", orangeGlow: "rgba(255,92,40,0.35)",
@@ -723,7 +723,7 @@ const C = {
 };
 
 /* ─── SEED DATA ──────────────────────────────────────────────────────────────── */
-const CATEGORIES = [
+export const CATEGORIES = [
   { id:"all",        label:"All",                 icon:"✦" },
   { id:"food",       label:"Food & Drinks",        icon:"🍽️" },
   { id:"music",      label:"Music & Performance",  icon:"🎵" },
@@ -807,7 +807,7 @@ const AV_SUBS = [
    service we haven't thought of can still list it (they name it themselves in
    the listing's Business name + description). Added programmatically so any
    category added later gets one automatically. */
-const CAT_SUBS = (() => {
+export const CAT_SUBS = (() => {
   const base = { food: FOOD_SUBS, music: MUSIC_SUBS, production: PRODUCTION_SUBS,
                  logistics: LOGISTICS_SUBS, places: PLACES_SUBS, rentals: RENTALS_SUBS,
                  av: AV_SUBS, other: [] };
@@ -858,7 +858,7 @@ export function fmtTimeRange(start, end) {
 
 /* Service-area cities. Houston metro first (the active market), then other
    major Texas cities. Vendors multi-select from this list. */
-const TX_CITIES = [
+export const TX_CITIES = [
   // Greater Houston
   "Houston", "Katy", "Sugar Land", "The Woodlands", "Pearland", "Cypress",
   "Spring", "Humble", "Kingwood", "Atascocita", "Conroe", "Pasadena",
@@ -872,10 +872,10 @@ const TX_CITIES = [
 ];
 
 /* Days a vendor is willing to work (multi-select). */
-const AVAIL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export const AVAIL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /* Hour blocks a vendor is willing to work (multi-select). */
-const TIME_BLOCKS = [
+export const TIME_BLOCKS = [
   ["Morning",    "Morning · 6am–12pm"],
   ["Afternoon",  "Afternoon · 12–5pm"],
   ["Evening",    "Evening · 5–10pm"],
@@ -1042,7 +1042,7 @@ export function vendorConflicts(vendor, avail, dateStr, startTime, endTime) {
    fields. Accepts either camelCase (UI layer) or snake_case (raw DB row) and
    falls back to the free-text venue name. Returns "" when nothing is set.
    Used for the vendor email and one-line summaries. */
-function formatEventLocation(r = {}) {
+export function formatEventLocation(r = {}) {
   const g = (a, b) => (r[a] ?? r[b] ?? "").toString().trim();
   const venueName = g("venue", "venue");
   const line1 = g("streetAddress", "street_address");
@@ -1210,7 +1210,7 @@ function memberId(user) {
    real row to reference — the UI still shows success. Once real vendors are
    onboarded (their IDs will be UUIDs), writes proceed normally. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isRealId(id) { return typeof id === "string" && UUID_RE.test(id); }
+export function isRealId(id) { return typeof id === "string" && UUID_RE.test(id); }
 
 /* ── Canonical booking-status vocabulary ─────────────────────────────────────
    One booking moves through: pending → confirmed → (cancelled) / declined.
@@ -1221,10 +1221,10 @@ function isRealId(id) { return typeof id === "string" && UUID_RE.test(id); }
    (which legitimately uses "approved"/"rejected" for vetting a business). */
 const STATUS_CONFIRMED = ["confirmed", "accepted", "approved"];
 const STATUS_DECLINED  = ["declined", "rejected"];
-function isConfirmedStatus(s) { return STATUS_CONFIRMED.includes(s); }
-function isDeclinedStatus(s)  { return STATUS_DECLINED.includes(s); }
+export function isConfirmedStatus(s) { return STATUS_CONFIRMED.includes(s); }
+export function isDeclinedStatus(s)  { return STATUS_DECLINED.includes(s); }
 function isPendingStatus(s)   { return s === "pending" || !s; }
-function isCancelledStatus(s) { return s === "cancelled" || s === "canceled"; }
+export function isCancelledStatus(s) { return s === "cancelled" || s === "canceled"; }
 /* Normalize any synonym to the canonical value the app writes going forward. */
 function canonicalStatus(s) {
   if (isConfirmedStatus(s)) return "confirmed";
@@ -1298,7 +1298,7 @@ const IS_PREVIEW = (() => {
 })();
 
 /* Minimal Supabase client — no npm needed, runs in browser */
-const sb = (() => {
+export const sb = (() => {
   /* Current logged-in user's access token (JWT). Null when signed out.
      REST/write calls must authenticate as this user so Postgres RLS can see
      auth.uid(). Without it, every call runs as the anon role and admin/owner
@@ -1715,7 +1715,7 @@ function sanitizeUser(u) {
   const { password, _auth, ...safe } = u;
   return safe;
 }
-function maskEmail(email) {
+export function maskEmail(email) {
   /* Partially masks email for display: "john.doe@gmail.com" → "jo***@gmail.com" */
   if (!email) return "";
   const [local, domain] = email.split("@");
@@ -1845,7 +1845,7 @@ function apiAuthHeaders() {
   return h;
 }
 
-async function loadSession() {
+export async function loadSession() {
   /* Returns the saved session object or null */
   return _loadSessionLocal();
 }
@@ -1954,7 +1954,7 @@ const LISTING_PLACEHOLDER = "https://images.unsplash.com/photo-1511795409834-ef0
    A price of null / "" / 0 means the vendor hasn't finished that option, so it
    stays hidden from customers — visiblePackages() is the single gate for that
    rule, used by every customer-facing surface. */
-function parsePackages(raw) {
+export function parsePackages(raw) {
   let arr = raw;
   if (typeof raw === "string" && raw.trim()) {
     try { arr = JSON.parse(raw); } catch { return []; }
@@ -1985,7 +1985,7 @@ function cheapestPackage(raw) {
 }
 
 /* Add-ons: optional extras a customer can add on top of a listing. */
-function parseAddons(raw) {
+export function parseAddons(raw) {
   let arr = raw;
   if (typeof raw === "string" && raw.trim()) {
     try { arr = JSON.parse(raw); } catch { return []; }
@@ -1995,7 +1995,7 @@ function parseAddons(raw) {
     .map(a => ({ name: (a.name || "").toString(), price: a.price === "" || a.price == null ? 0 : Number(a.price) || 0 }));
 }
 
-function parsePhotos(raw) {
+export function parsePhotos(raw) {
   if (Array.isArray(raw)) return raw.filter(Boolean);
   if (typeof raw === "string" && raw.trim()) {
     try {
@@ -2115,7 +2115,7 @@ function toGuestCount(x) {
 }
 
 /* Every service belonging to this vendor, including inactive ones. */
-async function getMyServices(vendorId) {
+export async function getMyServices(vendorId) {
   if (IS_PREVIEW) return [];
   const { data, error } = await sb.from("vendor_services")
     .select("*").eq("vendor_id", vendorId)
@@ -2124,7 +2124,7 @@ async function getMyServices(vendorId) {
   return data || [];
 }
 
-async function saveService(vendorId, svc) {
+export async function saveService(vendorId, svc) {
   const row = {
     vendor_id:    vendorId,
     category:     svc.category || "food",
@@ -2172,7 +2172,7 @@ async function saveService(vendorId, svc) {
   return { ok: true };
 }
 
-async function deleteService(vendorId, serviceId) {
+export async function deleteService(vendorId, serviceId) {
   const { error } = await sb.from("vendor_services")
     .eq("id", serviceId).eq("vendor_id", vendorId).delete();
   if (error) return { ok: false, error: error.message || "Could not delete this service." };
@@ -2185,7 +2185,7 @@ async function deleteService(vendorId, serviceId) {
 /* ── Reviews (persisted, booking-gated, two-sided) ───────────────────────────
    Users review vendors and vendors review users, but only after a confirmed
    booking. Reviews are public; the subject may reply. See reviews-setup.sql. */
-async function getReviewsAbout(subjectId) {
+export async function getReviewsAbout(subjectId) {
   if (IS_PREVIEW || !subjectId) return [];
   const { data, error } = await sb.from("reviews")
     .select("*").eq("subject_id", subjectId)
@@ -2208,7 +2208,7 @@ async function getReviewsAbout(subjectId) {
 }
 
 /* Average rating + count from a list of persisted reviews. Higher = better. */
-function ratingSummary(reviews) {
+export function ratingSummary(reviews) {
   const list = (reviews || []).filter(r => Number.isFinite(r.rating));
   if (!list.length) return { avg: null, count: 0 };
   const avg = list.reduce((a, r) => a + r.rating, 0) / list.length;
@@ -2228,7 +2228,7 @@ async function canReviewSubject(authorId, subjectId, direction) {
 }
 
 /* Existing review by this author about this subject (to avoid duplicates). */
-async function existingReview(authorId, subjectId, direction) {
+export async function existingReview(authorId, subjectId, direction) {
   if (IS_PREVIEW || !authorId) return null;
   const { data } = await sb.from("reviews")
     .select("*").eq("author_id", authorId).eq("subject_id", subjectId)
@@ -2237,7 +2237,7 @@ async function existingReview(authorId, subjectId, direction) {
   return r ? { id: r.id, rating: r.rating, body: r.body, reply: r.reply } : null;
 }
 
-async function submitReviewDB({ bookingId, authorId, subjectId, direction, rating, body, dims,
+export async function submitReviewDB({ bookingId, authorId, subjectId, direction, rating, body, dims,
                                 showName, authorName }) {
   if (IS_PREVIEW) return { ok: true };
   const d = dims || {};
@@ -2388,7 +2388,7 @@ function dbServiceToCard(s, v) {
    Signup already captures capacity, project size, years in business, travel
    radius and service areas — those are loaded here so the editor is
    pre-filled ("autopopulated") rather than blank.                          */
-async function getMyListing(vendorId) {
+export async function getMyListing(vendorId) {
   if (IS_PREVIEW) return null;
   const { data } = await sb.from("vendor_profiles").select("*").eq("id", vendorId).single().get();
   return data || null;
@@ -2406,7 +2406,7 @@ async function saveMyListing(vendorId, patch) {
 
 /* Uploads an image to Supabase Storage bucket "vendor-photos" and returns its
    public URL. Requires the bucket to exist and be public (see setup SQL). */
-async function uploadVendorPhoto(vendorId, file, accessToken) {
+export async function uploadVendorPhoto(vendorId, file, accessToken) {
   if (IS_PREVIEW) return { url: null, error: "Photo upload isn't available in preview mode." };
   if (file.size > 5 * 1024 * 1024) return { url: null, error: `${file.name} is larger than 5 MB.` };
   const ext  = (file.name.split(".").pop() || "jpg").toLowerCase();
@@ -2454,7 +2454,7 @@ async function uploadVendorPhoto(vendorId, file, accessToken) {
 /* ── ADMIN MODERATION ─────────────────────────────────────────────────────
    Every action is authorised server-side by is_admin(), so a non-admin calling
    these gets rejected by the database regardless of what the UI allows. */
-async function adminListAccounts() {
+export async function adminListAccounts() {
   if (IS_PREVIEW) return [];
   const { data, error } = await sb.rpc("admin_list_accounts");
   if (error) { console.warn("[PLUG] admin_list_accounts failed — run admin-moderation-setup.sql", error); return []; }
@@ -2466,7 +2466,7 @@ async function adminListAccounts() {
   }));
 }
 
-async function adminSendMessage(targetId, kind, subject, message) {
+export async function adminSendMessage(targetId, kind, subject, message) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.rpc("admin_message", {
     target_id: targetId, kind, subject: subject || "", message,
@@ -2475,7 +2475,7 @@ async function adminSendMessage(targetId, kind, subject, message) {
   return { ok: true };
 }
 
-async function adminSetBlocked(targetId, blocked, reason) {
+export async function adminSetBlocked(targetId, blocked, reason) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.rpc("admin_set_blocked", {
     target_id: targetId, blocked, reason: reason || null,
@@ -2484,14 +2484,14 @@ async function adminSetBlocked(targetId, blocked, reason) {
   return { ok: true };
 }
 
-async function adminDeleteAccount(targetId) {
+export async function adminDeleteAccount(targetId) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.rpc("admin_delete_account", { target_id: targetId });
   if (error) return { ok: false, error: error.message || "Could not delete." };
   return { ok: true };
 }
 
-async function getVendorApps() {
+export async function getVendorApps() {
   const { data } = await sb.from("vendor_profiles")
     .select("id, business_name, biz_legal, category, verification_status, created_at, biz_city, biz_state, photo_count, doc_file_name")
     .order("created_at", { ascending: false })
@@ -2513,7 +2513,7 @@ async function getVendorStatus(vendorId) {
   return data?.verification_status || null;
 }
 
-async function setVendorStatus(vendorId, status, reason = "") {
+export async function setVendorStatus(vendorId, status, reason = "") {
   const { data, error } = await sb.from("vendor_profiles").eq("id", vendorId).update({
     verification_status: status,
     rejection_reason:    reason || null,
@@ -3045,7 +3045,7 @@ const BOOT_ROUTE = (() => {
 
 const SITE_ORIGIN = "https://www.my-plug.com";
 
-async function getNotifs(userId) {
+export async function getNotifs(userId) {
   if (IS_PREVIEW) {
     return (await _pGet("notif:" + userId)) || [];
   }
@@ -3064,7 +3064,7 @@ async function getNotifs(userId) {
   }));
 }
 
-async function markNotifsRead(userId) {
+export async function markNotifsRead(userId) {
   if (IS_PREVIEW) {
     const list = (await _pGet("notif:" + userId)) || [];
     await _pSet("notif:" + userId, list.map(n => ({ ...n, read: true, is_read: true })));
@@ -3166,7 +3166,7 @@ function getGeoSignal() {
    RLS  — all app-layer data access MUST go through this object.
    Direct _stoGet / _stoSet calls outside this block are forbidden.
 ══════════════════════════════════════════════════════════════════════════════ */
-const RLS = {
+export const RLS = {
   /* Internal: returns the verified session userId or null */
   async _sid() {
     return getSessionUserId();
@@ -3340,7 +3340,7 @@ function conversationActive(c) {
   return Date.now() < cutoff.getTime();
 }
 
-async function startConversation({ otherId, kind = "user_vendor", serviceId, serviceName, subject, eventDate, bookingId, selfId }) {
+export async function startConversation({ otherId, kind = "user_vendor", serviceId, serviceName, subject, eventDate, bookingId, selfId }) {
   if (IS_PREVIEW || !otherId) return { ok: false, error: "Not available here." };
 
   /* Preferred: one server-side call that reuses an existing thread. */
@@ -3425,7 +3425,7 @@ async function getMessages(convId) {
   }));
 }
 
-async function sendMessage(convId, senderId, body) {
+export async function sendMessage(convId, senderId, body) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.from("messages")
     .insert({ conversation_id: convId, sender_id: senderId, body });
@@ -3475,7 +3475,7 @@ async function sendInquiry({ userId, vendorId, serviceId, serviceName, body, eve
   return { ok: true, conversationId: conv.id };
 }
 
-async function getVendorInquiries(vendorId) {
+export async function getVendorInquiries(vendorId) {
   if (IS_PREVIEW || !vendorId) return [];
   const { data, error } = await sb.from("inquiries")
     .select("*").eq("vendor_id", vendorId).order("created_at", { ascending: false }).get();
@@ -3493,7 +3493,7 @@ async function getVendorInquiries(vendorId) {
   }));
 }
 
-async function replyToInquiry(inquiryId, reply) {
+export async function replyToInquiry(inquiryId, reply) {
   if (IS_PREVIEW) return { ok: true };
   const { error } = await sb.from("inquiries").eq("id", inquiryId)
     .update({ reply, reply_at: new Date().toISOString() });
@@ -3553,7 +3553,7 @@ const PLATFORM_STATS = Object.freeze({
   categories:"5",
 });
 
-function Stars({ r, size=13, interactive=false, onRate }) {
+export function Stars({ r, size=13, interactive=false, onRate }) {
   return (
     <span style={{ display:"inline-flex", gap:2 }}>
       {[1,2,3,4,5].map(i => (
@@ -6043,7 +6043,7 @@ function AccountPanel({ user, justSent, allCards, onClose, onLogout, onListingSa
 }
 
 /* ─── AVAILABILITY CALENDAR ────────────────────────────────────────────────────── */
-function AvailabilityCalendar({ vendorId }) {
+export function AvailabilityCalendar({ vendorId }) {
   const today     = new Date();
   const [year,    setYear]    = useState(today.getFullYear());
   const [month,   setMonth]   = useState(today.getMonth());
@@ -6173,9 +6173,9 @@ function AvailabilityCalendar({ vendorId }) {
 /* One number, used by every photo picker and every counter. The profile form
    said 8, the listing editor said nothing at all, and neither stopped you
    adding more — so vendors uploaded until something silently gave. */
-const MAX_PHOTOS = 10;
+export const MAX_PHOTOS = 10;
 
-function PhotoManager({ photos, onChange, size = 78 }) {
+export function PhotoManager({ photos, onChange, size = 78 }) {
   const list = Array.isArray(photos) ? photos : [];
 
   const move = (from, to) => {
@@ -6840,7 +6840,7 @@ function AddressAutocomplete({ onSelect, placeholder }) {
 /* ─── EVENTS CALENDAR ───────────────────────────────────────────────────────
    Shows a party's past, current, and upcoming bookings on a month grid so both
    customers and vendors can track their dates at a glance. */
-function EventsCalendar({ bookings, role }) {
+export function EventsCalendar({ bookings, role }) {
   const today = new Date(); today.setHours(0,0,0,0);
   const [view, setView] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selDay, setSelDay] = useState(null);
@@ -8739,636 +8739,9 @@ function SavedVendorsPanel({ userId, allCards }) {
 }
 
 /* ─── SECURITY CONFIG PANEL (admin security tab — extracted from IIFE) ──────── */
-function SecurityConfigPanel() {
-  const [plat, setPlat] = useState("nginx");
-
-  const csp  = SECURITY_HEADERS.server["Content-Security-Policy"];
-  const hsts = SECURITY_HEADERS.server["Strict-Transport-Security"];
-  const xfo  = SECURITY_HEADERS.server["X-Frame-Options"];
-  const xcto = SECURITY_HEADERS.server["X-Content-Type-Options"];
-  const rp   = SECURITY_HEADERS.server["Referrer-Policy"];
-  const pp   = SECURITY_HEADERS.server["Permissions-Policy"];
-  const cc   = SECURITY_HEADERS.server["Cache-Control"];
-  const coop = SECURITY_HEADERS.server["Cross-Origin-Opener-Policy"];
-  const corp = SECURITY_HEADERS.server["Cross-Origin-Resource-Policy"];
-
-  const cfgs = {
-    nginx:
-`# Nginx — add inside server {} block
-add_header Content-Security-Policy "${csp}" always;
-add_header Strict-Transport-Security "${hsts}" always;
-add_header X-Frame-Options "${xfo}" always;
-add_header X-Content-Type-Options "${xcto}" always;
-add_header Referrer-Policy "${rp}" always;
-add_header Permissions-Policy "${pp}" always;
-add_header Cache-Control "${cc}" always;
-add_header Cross-Origin-Opener-Policy "${coop}" always;
-add_header Cross-Origin-Resource-Policy "${corp}" always;`,
-    express:
-`// npm install helmet
-app.use(helmet({
-  contentSecurityPolicy: { directives: {
-    defaultSrc:["'self'"], scriptSrc:["'self'","'unsafe-inline'","'unsafe-eval'"],
-    styleSrc:["'self'","'unsafe-inline'","https://fonts.googleapis.com"],
-    fontSrc:["'self'","https://fonts.gstatic.com","data:"],
-    imgSrc:["'self'","https://images.unsplash.com","https://cdn.jsdelivr.net","data:","blob:"],
-    connectSrc:["'self'","https://api.anthropic.com","https://*.supabase.co","wss://*.supabase.co","https://api.resend.com"],
-    frameAncestors:["'self'","https://claude.ai"],
-  }},
-  hsts:{ maxAge:63072000, includeSubDomains:true, preload:true },
-  frameguard:{ action:"sameorigin" },
-  referrerPolicy:{ policy:"strict-origin-when-cross-origin" },
-}));`,
-    vercel:
-`// vercel.json
-{ "headers": [{ "source":"/(.*)", "headers": [
-  {"key":"Content-Security-Policy","value":"${csp}"},
-  {"key":"Strict-Transport-Security","value":"${hsts}"},
-  {"key":"X-Frame-Options","value":"${xfo}"},
-  {"key":"X-Content-Type-Options","value":"${xcto}"},
-  {"key":"Referrer-Policy","value":"${rp}"},
-  {"key":"Permissions-Policy","value":"${pp}"},
-  {"key":"Cache-Control","value":"${cc}"}
-]}]}`,
-  };
-
-  return (
-    <div style={{ marginTop:14 }}>
-      <p style={{ margin:"0 0 8px", fontSize:11, fontWeight:700, color:C.black }}>
-        Deploy config — copy for your platform:
-      </p>
-      <div style={{ display:"flex", gap:4, marginBottom:8 }}>
-        {[["nginx","Nginx"],["express","Express"],["vercel","Vercel"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setPlat(k)} className="btn"
-            style={{ padding:"4px 12px", borderRadius:99, fontSize:10, fontWeight:700,
-                     border:`1.5px solid ${plat===k?"#111":C.border}`,
-                     background:plat===k?"#111":"#fff", color:plat===k?"#fff":C.midGray }}>
-            {l}
-          </button>
-        ))}
-      </div>
-      <div style={{ position:"relative" }}>
-        <pre style={{ background:"#0d1117", color:"#7ee787", borderRadius:10,
-                      padding:"12px 48px 12px 14px", fontSize:9, lineHeight:1.8,
-                      overflowX:"auto", margin:0, fontFamily:"monospace",
-                      whiteSpace:"pre-wrap", wordBreak:"break-word",
-                      maxHeight:220, overflowY:"auto" }}>
-          {cfgs[plat]}
-        </pre>
-        <button onClick={()=>navigator.clipboard?.writeText(cfgs[plat])} className="btn"
-          style={{ position:"absolute", top:6, right:6, background:"rgba(255,255,255,0.08)",
-                   border:"1px solid rgba(255,255,255,0.15)", borderRadius:6,
-                   padding:"3px 9px", fontSize:9, color:"#7ee787", fontWeight:700 }}>
-          Copy
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
-/* Admin moderation console: every user and vendor, with actions. */
-function AdminAccounts({ adminId }) {
-  const [rows, setRows]     = useState([]);
-  const [loading, setLoad]  = useState(true);
-  const [q, setQ]           = useState("");
-  const [kindFilter, setKF] = useState("all");   // all | user | vendor
-  const [busyId, setBusyId] = useState(null);
-  const [err, setErr]       = useState("");
-  const [msgFor, setMsgFor] = useState(null);    // account we're messaging
-  const [msgKind, setMsgKind] = useState("message");
-  const [msgSubject, setMsgSubject] = useState("");
-  const [msgBody, setMsgBody] = useState("");
-  const [okNote, setOkNote] = useState("");
-
-  const load = React.useCallback(() => {
-    setLoad(true);
-    adminListAccounts().then(list => { setRows(list); setLoad(false); });
-  }, []);
-  useEffect(() => { load(); }, [load]);
-
-  function flash(t) { setOkNote(t); setTimeout(() => setOkNote(""), 2600); }
-
-  async function act(row, what) {
-    setErr(""); setBusyId(row.id);
-    let res;
-    if (what === "approve")      res = await setVendorStatus(row.id, "approved");
-    else if (what === "decline") res = await setVendorStatus(row.id, "rejected", "Did not meet verification requirements.");
-    else if (what === "block")   res = await adminSetBlocked(row.id, true, window.prompt("Reason for blocking (the account will see this):") || "Violation of marketplace rules.");
-    else if (what === "unblock") res = await adminSetBlocked(row.id, false);
-    else if (what === "delete") {
-      const label = row.businessName || row.displayName || row.email;
-      if (!window.confirm(`Permanently delete ${label}?\n\nThis removes their listings, bookings and reviews. This cannot be undone.`)) { setBusyId(null); return; }
-      res = await adminDeleteAccount(row.id);
-    }
-    setBusyId(null);
-    if (res && res.ok === false) { setErr(res.error || "Action failed."); return; }
-    flash(what === "delete" ? "Account deleted." : "Done.");
-    load();
-  }
-
-  async function sendMsg() {
-    if (!msgBody.trim()) return;
-    setBusyId(msgFor.id); setErr("");
-    if (msgKind === "warning") {
-      /* A formal warning is a one-way notice on the record. */
-      const res = await adminSendMessage(msgFor.id, "warning", msgSubject.trim(), msgBody.trim());
-      setBusyId(null);
-      if (!res.ok) { setErr(res.error); return; }
-      flash("Warning sent.");
-    } else {
-      /* A message opens a real conversation the person can reply to, and which
-         only the admin can end. */
-      const conv = await startConversation({
-        otherId: msgFor.id, kind: "admin", selfId: adminId,
-        subject: msgSubject.trim() || "PLUG Support",
-      });
-      if (!conv.ok) { setBusyId(null); setErr(conv.error); return; }
-      const sent = await sendMessage(conv.id, adminId, msgBody.trim());
-      setBusyId(null);
-      if (!sent.ok) { setErr(sent.error); return; }
-      flash("Message sent — they can reply in Messages.");
-    }
-    setMsgFor(null); setMsgSubject(""); setMsgBody(""); setMsgKind("message");
-  }
-
-  const list = rows.filter(r => {
-    if (kindFilter === "vendor" && r.role !== "vendor") return false;
-    if (kindFilter === "user"   && r.role !== "user")   return false;
-    if (!q.trim()) return true;
-    const hay = `${r.email} ${r.displayName} ${r.businessName}`.toLowerCase();
-    return hay.includes(q.trim().toLowerCase());
-  });
-
-  const Btn = ({ onClick, disabled, bg, fg, bd, children }) => (
-    <button onClick={onClick} disabled={disabled} className="btn"
-      style={{ padding:"5px 10px", borderRadius:8, fontSize:11, fontWeight:700, cursor:"pointer",
-               background:bg, color:fg, border:bd ? `1px solid ${bd}` : "none", opacity: disabled ? 0.5 : 1 }}>
-      {children}
-    </button>
-  );
-
-  return (
-    <div>
-      {err && (
-        <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", color:"#B91C1C",
-                      borderRadius:9, padding:"9px 12px", marginBottom:10, fontSize:12, fontWeight:600 }}>⚠ {err}</div>
-      )}
-      {okNote && (
-        <div style={{ background:C.greenSoft, border:`1px solid ${C.green}55`, color:C.green,
-                      borderRadius:9, padding:"9px 12px", marginBottom:10, fontSize:12, fontWeight:700 }}>✓ {okNote}</div>
-      )}
-
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔍 Search name, business or email…"
-        style={{ width:"100%", height:38, padding:"0 12px", border:`1px solid ${C.border}`,
-                 borderRadius:9, fontSize:12.5, marginBottom:8, boxSizing:"border-box" }} />
-      <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-        {[["all","Everyone"],["user","Users"],["vendor","Vendors"]].map(([k,l]) => (
-          <button key={k} onClick={()=>setKF(k)} className="btn"
-            style={{ padding:"5px 12px", borderRadius:99, fontSize:11.5, fontWeight:700, cursor:"pointer",
-                     border:`1px solid ${kindFilter===k?C.orange:C.border}`,
-                     background: kindFilter===k ? "#FFF7ED" : "#fff",
-                     color: kindFilter===k ? C.orange : C.midGray }}>{l}</button>
-        ))}
-        <span style={{ marginLeft:"auto", fontSize:11, color:C.lightGray, alignSelf:"center" }}>
-          {list.length} account{list.length===1?"":"s"}
-        </span>
-      </div>
-
-      {loading ? (
-        <p style={{ fontSize:13, color:C.midGray }}>Loading accounts…</p>
-      ) : list.length === 0 ? (
-        <p style={{ fontSize:13, color:C.midGray }}>No accounts match.</p>
-      ) : list.map(r => {
-        const blocked = r.accountStatus === "blocked";
-        const isVendor = r.role === "vendor";
-        const isAdminRow = r.role === "admin";
-        return (
-          <div key={r.id} style={{ borderTop:`1px solid ${C.border}`, padding:"11px 0" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
-              <div style={{ flex:1, minWidth:180 }}>
-                <p style={{ margin:0, fontSize:13, fontWeight:800, color:C.black }}>
-                  {r.businessName || r.displayName || r.email}
-                  <span style={{ marginLeft:6, fontSize:9.5, fontWeight:800, padding:"2px 7px", borderRadius:99,
-                                 background: isAdminRow ? "#EDE9FE" : isVendor ? "#EFF6FF" : "#F3F4F6",
-                                 color: isAdminRow ? "#6D28D9" : isVendor ? "#1D4ED8" : C.midGray }}>
-                    {isAdminRow ? "ADMIN" : isVendor ? "VENDOR" : "USER"}
-                  </span>
-                  {blocked && (
-                    <span style={{ marginLeft:5, fontSize:9.5, fontWeight:800, padding:"2px 7px",
-                                   borderRadius:99, background:"#FEF2F2", color:"#EF4444" }}>BLOCKED</span>
-                  )}
-                </p>
-                <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray }}>
-                  {r.email}
-                  {isVendor && r.vendorStatus ? ` · ${r.vendorStatus}` : ""}
-                  {` · ${r.listings} listing${r.listings===1?"":"s"} · ${r.bookings} booking${r.bookings===1?"":"s"}`}
-                </p>
-              </div>
-            </div>
-
-            {!isAdminRow && (
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
-                {isVendor && r.vendorStatus !== "approved" && (
-                  <Btn onClick={()=>act(r,"approve")} disabled={busyId===r.id} bg={C.green} fg="#fff">✓ Accept</Btn>
-                )}
-                {isVendor && r.vendorStatus !== "rejected" && (
-                  <Btn onClick={()=>act(r,"decline")} disabled={busyId===r.id} bg="#FFFBEB" fg="#B45309" bd="#FCD34D">✗ Decline</Btn>
-                )}
-                <Btn onClick={()=>{ setMsgFor(r); setMsgKind("message"); }} disabled={busyId===r.id}
-                  bg="#EFF6FF" fg="#1D4ED8" bd="#BFDBFE">💬 Message</Btn>
-                <Btn onClick={()=>{ setMsgFor(r); setMsgKind("warning"); }} disabled={busyId===r.id}
-                  bg="#FFFBEB" fg="#B45309" bd="#FCD34D">⚠️ Warn</Btn>
-                {blocked ? (
-                  <Btn onClick={()=>act(r,"unblock")} disabled={busyId===r.id} bg={C.greenSoft} fg={C.green} bd={C.green+"55"}>↩ Unblock</Btn>
-                ) : (
-                  <Btn onClick={()=>act(r,"block")} disabled={busyId===r.id} bg="#FEF2F2" fg="#B91C1C" bd="#FCA5A5">🚫 Block</Btn>
-                )}
-                <Btn onClick={()=>act(r,"delete")} disabled={busyId===r.id} bg="#111" fg="#fff">🗑 Delete</Btn>
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {/* Message / warning composer */}
-      {msgFor && (
-        <div onClick={()=>setMsgFor(null)}
-          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:1200,
-                   display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div onClick={e=>e.stopPropagation()}
-            style={{ background:"#fff", borderRadius:16, padding:"20px 22px", width:"100%", maxWidth:440 }}>
-            <p style={{ margin:"0 0 3px", fontSize:15, fontWeight:800 }}>
-              {msgKind === "warning" ? "⚠️ Send a warning" : "💬 Send a message"}
-            </p>
-            <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
-              To {msgFor.businessName || msgFor.displayName || msgFor.email}
-            </p>
-            <div style={{ display:"flex", gap:6, marginBottom:10 }}>
-              {[["message","💬 Message"],["warning","⚠️ Warning"]].map(([k,l]) => (
-                <button key={k} onClick={()=>setMsgKind(k)} className="btn"
-                  style={{ flex:1, padding:"7px 0", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer",
-                           border:`1.5px solid ${msgKind===k?C.orange:C.border}`,
-                           background: msgKind===k ? "#FFF7ED" : "#fff",
-                           color: msgKind===k ? C.orange : C.midGray }}>{l}</button>
-              ))}
-            </div>
-            <input value={msgSubject} onChange={e=>setMsgSubject(e.target.value)}
-              placeholder="Subject (optional)"
-              style={{ width:"100%", height:38, padding:"0 11px", border:`1px solid ${C.border}`,
-                       borderRadius:9, fontSize:12.5, marginBottom:8, boxSizing:"border-box" }} />
-            <textarea value={msgBody} onChange={e=>setMsgBody(e.target.value)}
-              placeholder={msgKind === "warning"
-                ? "Explain what needs to change and what happens if it doesn't…"
-                : "Write your message…"}
-              style={{ width:"100%", minHeight:100, padding:"9px 11px", border:`1px solid ${C.border}`,
-                       borderRadius:9, fontSize:12.5, resize:"vertical", boxSizing:"border-box",
-                       fontFamily:"'Inter',sans-serif" }} />
-            <div style={{ display:"flex", gap:8, marginTop:12 }}>
-              <button onClick={()=>setMsgFor(null)} className="btn"
-                style={{ flex:1, padding:"9px 0", borderRadius:9, border:`1px solid ${C.border}`,
-                         background:"#fff", fontSize:12.5, fontWeight:700, color:C.midGray }}>Cancel</button>
-              <button onClick={sendMsg} disabled={!msgBody.trim() || busyId===msgFor.id} className="btn"
-                style={{ flex:1, padding:"9px 0", borderRadius:9, border:"none",
-                         background: msgKind==="warning" ? "#B45309" : C.orange,
-                         color:"#fff", fontSize:12.5, fontWeight:800,
-                         opacity: !msgBody.trim() ? 0.5 : 1 }}>
-                {busyId===msgFor.id ? "Sending…" : msgKind==="warning" ? "Send warning" : "Send message"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AdminPanel({ user, onClose }) {
-  const [atab,       setAtab]      = useState("accounts");
-  const [vendorApps, setVendorApps]= useState([]);
-  const [busy,       setBusy]      = useState(false);
-  const [actionErr,  setActionErr] = useState("");
-  const origin = (typeof window !== "undefined" ? window.location.origin : "") || "null";
-  const originOk = isOriginAllowed(origin);
-
-  useEffect(() => { getVendorApps().then(setVendorApps); }, []);
-
-  async function handleAction(vendorId, action) {
-    setBusy(true);
-    setActionErr("");
-    const res = await setVendorStatus(vendorId, action === "approve" ? "approved" : "rejected",
-      action === "reject" ? "Did not meet verification requirements." : "");
-    if (!res || !res.ok) {
-      setActionErr((res && res.error) || "Action failed — the change did not save.");
-      setBusy(false);
-      return;
-    }
-    setVendorApps(await getVendorApps());
-    setBusy(false);
-  }
-
-  const pendingCount = vendorApps.filter(v => v.status === "pending").length;
-
-  const PolicyRow = ({ name, rule, ok }) => (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-                  padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
-      <div style={{ flex:1 }}>
-        <p style={{ margin:0, fontSize:11, fontWeight:700, color:C.black, fontFamily:"monospace" }}>{name}</p>
-        <p style={{ margin:"2px 0 0", fontSize:10, color:C.midGray, fontFamily:"monospace" }}>{rule}</p>
-      </div>
-      <span style={{ background: ok ? C.greenSoft : "#FEF2F2", color: ok ? C.green : "#EF4444",
-                     fontSize:9, fontWeight:800, padding:"3px 8px", borderRadius:99,
-                     flexShrink:0, marginLeft:10 }}>
-        {ok ? "✓ ACTIVE" : "✗ BLOCKED"}
-      </span>
-    </div>
-  );
-
-  const tabs = [
-    ["accounts","👥 Accounts", 0],
-    ["messages","💬 Messages", 0],
-    ["vendors","🏪 Vendors", pendingCount],
-    ["cors",   "🌐 CORS",   0],
-    ["rls",    "🔒 RLS",    0],
-    ["sec",    "🛡️ Headers",0],
-    ["acct",   "👤 Account",0],
-  ];
-
-  return (
-    <div className="modal-overlay" onClick={onClose}
-      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000,
-               display:"flex", alignItems:"center", justifyContent:"center", padding:20,
-               backdropFilter:"blur(4px)" }}>
-      <div onClick={e=>e.stopPropagation()} className="fade-up"
-        style={{ background:"#fff", borderRadius:22, maxWidth:580, width:"100%",
-                 maxHeight:"88vh", display:"flex", flexDirection:"column",
-                 boxShadow:C.shadowModal, overflow:"hidden" }}>
-
-        {/* Header */}
-        <div style={{ padding:"20px 26px 16px", background:"#0A0A0A", flexShrink:0 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:18 }}>🛡️</span>
-              <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:19, fontWeight:800,
-                           color:"#fff", margin:0 }}>Admin Panel</h2>
-            </div>
-            <button onClick={onClose} className="btn"
-              style={{ background:"rgba(255,255,255,0.1)", border:"none", borderRadius:"50%",
-                       width:30, height:30, fontSize:15, color:"rgba(255,255,255,0.7)",
-                       display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
-          </div>
-          {/* Tab bar */}
-          <div style={{ display:"flex", gap:2, marginTop:12 }}>
-            {tabs.map(([k,l,badge]) => (
-              <button key={k} onClick={()=>setAtab(k)} className="btn"
-                style={{ padding:"7px 12px", borderRadius:"8px 8px 0 0", fontSize:11, fontWeight:700,
-                         border:"none", background: atab===k ? "#fff" : "rgba(255,255,255,0.08)",
-                         color: atab===k ? C.black : "rgba(255,255,255,0.6)",
-                         display:"flex", alignItems:"center", gap:5 }}>
-                {l}
-                {badge > 0 && (
-                  <span style={{ background:"#EF4444", color:"#fff", fontSize:9, fontWeight:800,
-                                  padding:"1px 5px", borderRadius:99 }}>{badge}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Body */}
-        <div style={{ flex:1, overflowY:"auto", padding:"20px 26px" }}>
-
-          {/* ── VENDOR APPLICATIONS ── */}
-          {atab === "accounts" && <AdminAccounts adminId={user.id} />}
-          {atab === "messages" && <MessagesPanel user={user} isAdmin />}
-
-          {atab === "vendors" && (
-            <div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>
-                  Vendor Applications
-                  <span style={{ marginLeft:8, fontSize:11, fontWeight:400, color:C.midGray }}>
-                    {vendorApps.length} total · {pendingCount} pending
-                  </span>
-                </h3>
-                <button onClick={()=>getVendorApps().then(setVendorApps)} className="btn"
-                  style={{ fontSize:11, padding:"5px 12px", borderRadius:99,
-                           border:`1px solid ${C.border}`, background:"#fff", color:C.midGray }}>
-                  ↻ Refresh
-                </button>
-              </div>
-
-              {actionErr && (
-                <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", color:"#B91C1C",
-                              borderRadius:9, padding:"9px 12px", marginBottom:10, fontSize:12, fontWeight:600 }}>
-                  ⚠ {actionErr}
-                </div>
-              )}
-
-              {vendorApps.length === 0 ? (
-                <div style={{ textAlign:"center", padding:"36px 0", color:C.lightGray }}>
-                  <div style={{ fontSize:40, marginBottom:10 }}>🏪</div>
-                  <p style={{ fontSize:13 }}>No vendor applications yet.</p>
-                  <p style={{ fontSize:11, marginTop:4 }}>New vendor sign-ups will appear here for review.</p>
-                </div>
-              ) : (
-                vendorApps.sort((a,b) => (a.status==="pending"?-1:1)).map(app => (
-                  <div key={app.vendorId} style={{ background:"#F9FAFB", borderRadius:12,
-                                                    padding:"14px 16px", marginBottom:10,
-                                                    border:`1px solid ${C.border}` }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <p style={{ margin:0, fontSize:13, fontWeight:800 }}>{app.name}</p>
-                        <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray }}>{app.email}</p>
-                        <div style={{ display:"flex", gap:8, marginTop:3, flexWrap:"wrap" }}>
-                          <span style={{ fontFamily:"monospace", fontSize:9, color:C.lightGray }}>{app.vendorId}</span>
-                          <span style={{ fontSize:10, color:C.midGray }}>· {app.category}</span>
-                          <span style={{ fontSize:10, color:C.lightGray }}>
-                            · {new Date(app.submittedAt||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
-                          </span>
-                          {app.geoSignal?.tz_city && (
-                            <span style={{ fontSize:10, color:"#1D4ED8", background:"#EFF6FF",
-                                           padding:"1px 6px", borderRadius:99 }}>
-                              📍 {app.geoSignal.tz_city} · {app.geoSignal.lang}
-                            </span>
-                          )}
-                          {app.docFileName && (
-                            <span style={{ fontSize:10, color:C.green, background:C.greenSoft,
-                                           padding:"1px 6px", borderRadius:99 }}>
-                              📎 Doc uploaded: {app.docFileName}
-                            </span>
-                          )}
-                          {!app.docFileName && app.status==="pending" && (
-                            <span style={{ fontSize:10, color:"#D97706", background:"#FFFBEB",
-                                           padding:"1px 6px", borderRadius:99 }}>
-                              ⚠ No document uploaded
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span style={{ padding:"3px 10px", borderRadius:99, fontSize:10, fontWeight:800, flexShrink:0,
-                                     background: app.status==="approved" ? C.greenSoft : app.status==="rejected" ? "#FEF2F2" : "#FFFBEB",
-                                     color: app.status==="approved" ? C.green : app.status==="rejected" ? "#EF4444" : "#D97706" }}>
-                        {app.status==="approved" ? "✓ Approved" : app.status==="rejected" ? "✗ Rejected" : "⏳ Pending"}
-                      </span>
-                    </div>
-                    {app.status === "pending" && (
-                      <div style={{ display:"flex", gap:8, marginTop:10 }}>
-                        <button onClick={()=>handleAction(app.vendorId,"approve")}
-                          disabled={busy} className="btn"
-                          style={{ flex:1, padding:"8px 0", borderRadius:9, background:C.green,
-                                   color:"#fff", border:"none", fontSize:12, fontWeight:700 }}>
-                          ✓ Approve vendor
-                        </button>
-                        <button onClick={()=>handleAction(app.vendorId,"reject")}
-                          disabled={busy} className="btn"
-                          style={{ flex:1, padding:"8px 0", borderRadius:9, background:"#FEF2F2",
-                                   color:"#EF4444", border:"1px solid #FCA5A5", fontSize:12, fontWeight:700 }}>
-                          ✗ Reject
-                        </button>
-                      </div>
-                    )}
-                    {app.reason && (
-                      <p style={{ margin:"8px 0 0", fontSize:10, color:C.midGray, fontStyle:"italic" }}>
-                        Review note: {app.reason}
-                      </p>
-                    )}
-                  </div>
-                ))
-              )}
-
-              <div style={{ background:"#EFF6FF", borderRadius:10, padding:"12px 14px", marginTop:8 }}>
-                <p style={{ margin:0, fontSize:10, color:"#1D4ED8", lineHeight:1.65 }}>
-                  <strong>Privacy note:</strong> Full application details (license #, EIN, address, managing members)
-                  are stored in the vendor's private encrypted storage. Only non-sensitive summaries appear here.
-                  Contact vendors at their registered email to request verification documents.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* ── CORS ORIGIN POLICY ── */}
-          {atab === "cors" && (
-            <div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-                <span style={{ fontSize:16 }}>🌐</span>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>CORS / Origin Policy</h3>
-                <span style={{ background: originOk ? C.greenSoft : "#FEF2F2",
-                               color: originOk ? C.green : "#EF4444",
-                               fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:99 }}>
-                  {originOk ? "✓ Enforced" : "⚠ Current origin unlisted"}
-                </span>
-              </div>
-              <div style={{ background:"#F9FAFB", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
-                <p style={{ margin:"0 0 4px", fontSize:9, fontWeight:800, color:C.midGray,
-                            textTransform:"uppercase", letterSpacing:"0.1em" }}>Current origin</p>
-                <p style={{ margin:0, fontFamily:"monospace", fontSize:13, fontWeight:700,
-                            color: originOk ? C.black : "#EF4444" }}>{origin}</p>
-                <p style={{ margin:"4px 0 0", fontSize:10, color: originOk ? C.green : "#EF4444", fontWeight:600 }}>
-                  {originOk ? "✓ On allowlist" : "✗ Not on allowlist — add to CORS_CONFIG.allowedOrigins"}
-                </p>
-              </div>
-              <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:700 }}>
-                Allowed origins ({CORS_CONFIG.allowedOrigins.length})
-              </p>
-              {CORS_CONFIG.allowedOrigins.map((o, i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:8,
-                                      background:"#F3F4F6", borderRadius:8, padding:"6px 12px", marginBottom:4 }}>
-                  <span style={{ fontSize:10, color:C.green, fontWeight:800 }}>✓</span>
-                  <span style={{ fontFamily:"monospace", fontSize:11, color:C.black, wordBreak:"break-all" }}>
-                    {o.toString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── RLS POLICIES ── */}
-          {atab === "rls" && (
-            <div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-                <span style={{ fontSize:16 }}>🔒</span>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>Row Level Security — Active Policies</h3>
-              </div>
-              <PolicyRow name="user_isolation"           rule="USING (session.userId = record.id)"                                  ok />
-              <PolicyRow name="booking_isolation (read)" rule="USING (session.userId = booking.userId)"                            ok />
-              <PolicyRow name="booking_isolation (write)"rule="WITH CHECK (session.userId = NEW.userId AND type != 'guest')"       ok />
-              <PolicyRow name="review_auth"              rule="WITH CHECK (session.type IN ('user','vendor'))"                     ok />
-              <PolicyRow name="admin_only"               rule="USING (session.type = 'admin' AND session.userId = record.adminId)" ok />
-              <PolicyRow name="cors_origin"              rule="USING (window.location.origin IN CORS_CONFIG.allowedOrigins)"       ok={originOk} />
-            </div>
-          )}
-
-          {/* ── SECURITY HEADERS ── */}
-          {atab === "sec" && (
-            <div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                <span style={{ fontSize:16 }}>🔐</span>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>Security Headers</h3>
-              </div>
-              <p style={{ margin:"0 0 12px", fontSize:11, color:C.midGray, lineHeight:1.6 }}>
-                Headers marked <strong>server only</strong> must be set on your web server — cannot be set by JavaScript.
-              </p>
-              {Object.entries(SECURITY_HEADERS.server).map(([name, val]) => {
-                const meta = name === "Content-Security-Policy" || name === "Referrer-Policy";
-                return (
-                  <div key={name} style={{ display:"flex", justifyContent:"space-between",
-                                           alignItems:"flex-start", padding:"7px 0",
-                                           borderBottom:`1px solid ${C.border}` }}>
-                    <div style={{ flex:1, minWidth:0, paddingRight:8 }}>
-                      <p style={{ margin:0, fontSize:10, fontWeight:700, color:C.black, fontFamily:"monospace" }}>{name}</p>
-                      <p style={{ margin:"1px 0 0", fontSize:9, color:C.lightGray,
-                                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                        {val.length > 80 ? val.slice(0,80)+"…" : val}
-                      </p>
-                    </div>
-                    <span style={{ flexShrink:0, fontSize:9, fontWeight:800, padding:"2px 7px", borderRadius:99,
-                                   background: meta ? "#EFF6FF" : "#FFFBEB",
-                                   color: meta ? "#1D4ED8" : "#92400E" }}>
-                      {meta ? "✓ meta + server" : "⚠ server only"}
-                    </span>
-                  </div>
-                );
-              })}
-              <SecurityConfigPanel />
-            </div>
-          )}
-
-          {/* ── ADMIN ACCOUNT ── */}
-          {atab === "acct" && (
-            <div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                <span style={{ fontSize:16 }}>👤</span>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>Your Admin Account</h3>
-              </div>
-              <div style={{ background:"#F9FAFB", borderRadius:12, padding:"14px 16px", border:`1px solid ${C.border}` }}>
-                {[
-                  ["Admin ID",    user.id,               "monospace"],
-                  ["Name",        user.name,              "normal"],
-                  ["Email",       maskEmail(user.email),  "normal"],
-                  ["Type",        "Administrator 🛡️",     "normal"],
-                  ["Created",     new Date(user.createdAt||Date.now()).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}), "normal"],
-                ].map(([label, val, ff]) => (
-                  <div key={label} style={{ display:"flex", justifyContent:"space-between",
-                                            padding:"5px 0", borderBottom:`1px solid ${C.border}` }}>
-                    <span style={{ fontSize:11, color:C.midGray, fontWeight:600 }}>{label}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:C.black,
-                                   fontFamily: ff==="monospace" ? "monospace" : "inherit" }}>
-                      {val}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
+/* SecurityConfigPanel moved to src/dashboards/AdminPanel.jsx (23 Sep 2026) - loaded on demand. */
+/* AdminAccounts moved to src/dashboards/AdminPanel.jsx (23 Sep 2026) - loaded on demand. */
+/* AdminPanel moved to src/dashboards/AdminPanel.jsx (23 Sep 2026) - loaded on demand. */
 function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorReply, onAddToCart, inCart, onRequireAuth, isFav, onToggleFav }) {
   if (!vendor) { if (onBack) onBack(); return null; }
 
@@ -10075,8 +9448,13 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
                        color: inCart ? C.midGray : "#fff",
                        fontSize:14, fontWeight:800, marginBottom:8,
                        boxShadow: inCart ? "none" : C.shadowButton }}>
-              {(!user || user.type === "guest")
-                ? "🔒 Log in to book"
+              {/* A guest is NOT signed out - the header says "Guest" and offers
+                  "Log out" - so telling them to log in is a contradiction they
+                  cannot act on. They do not need to log in, they need an
+                  account. The helper line below already said so; the button
+                  disagreed with it. */}
+              {!user ? "🔒 Log in to book"
+                : user.type === "guest" ? "🔒 Sign up to book"
                 : inCart ? "✓ Added — set date & details in cart" : disp.instant ? "⚡ Book now" : "Start booking request"}
             </button>
             <p style={{ fontSize:11, color:C.midGray, textAlign:"center", margin:"0 0 4px", lineHeight:1.5 }}>
@@ -10120,7 +9498,9 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
                     }} className="btn" disabled={inquiryBusy}
                     style={{ width:"100%", padding:"10px 0", borderRadius:10, background:C.black, color:"#fff",
                              border:"none", fontSize:13, fontWeight:700, marginTop:8 }}>
-                    {(!user || user.type === "guest") ? "🔒 Log in to inquire" : inquiryBusy ? "Sending…" : "Send inquiry"}
+                    {!user ? "🔒 Log in to inquire"
+                      : user.type === "guest" ? "🔒 Sign up to inquire"
+                      : inquiryBusy ? "Sending…" : "Send inquiry"}
                   </button>
                 </>
               )}
@@ -10444,655 +9824,8 @@ function ResetPasswordScreen({ token, onDone }) {
    A vendor can offer many services across different categories — e.g. a venue
    that also provides rentals, A/V and a DJ. Each row is one vendor_services
    record; the business details live on vendor_profiles and are shared. */
-function ServicesManager({ vendorId }) {
-  const [services, setServices] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [editing,  setEditing]  = useState(null);   // service object or "new"
-  const [err,      setErr]      = useState("");
-  const [ok,       setOk]       = useState("");
-  const [busy,     setBusy]     = useState(false);
-  const [uploading,setUploading]= useState(false);
-
-  const blank = { category:"food", subcategory:"", subcategories:[], name:"", service_type:"", description:"",
-                  price_value:"", capacity_min:"", capacity_max:"", photos:[], packages:[], active:true, offsite:false, travel_miles:"", service_areas:"", addons:[], avail_days:[], avail_blocks:[], max_per_day:1, gap_hours:2, simultaneous:false, min_notice_hours:0 };
-
-  async function load() {
-    setLoading(true);
-    const list = await getMyServices(vendorId);
-    if (list && list.__error) { setErr(list.__error); setServices([]); }
-    else setServices(Array.isArray(list) ? list : []);
-    setLoading(false);
-  }
-  useEffect(() => { load(); }, [vendorId]);
-
-  function startEdit(s) {
-    setErr(""); setOk("");
-    setEditing(s ? {
-      ...s,
-      price_value: s.price_value != null ? String(s.price_value) : "",
-      photos: parsePhotos(s.photos),
-      packages: parsePackages(s.packages),
-      subcategory: s.subcategory || "",
-      /* Older listings predate the array and only have the single value. */
-      subcategories: Array.isArray(s.subcategories) && s.subcategories.length
-                       ? s.subcategories
-                       : (s.subcategory ? [s.subcategory] : []),
-      offsite: s.offsite === true,
-      travel_miles: s.travel_miles != null ? String(s.travel_miles) : "",
-      service_areas: s.service_areas || "",
-      addons: parseAddons(s.addons),
-      avail_days: parseEventTypes(s.avail_days),
-      avail_blocks: parseEventTypes(s.avail_blocks),
-      max_per_day: s.max_per_day == null ? 1 : s.max_per_day,
-      gap_hours: s.gap_hours == null ? 2 : s.gap_hours,
-      min_notice_hours: s.min_notice_hours == null ? 0 : s.min_notice_hours,
-      simultaneous: s.simultaneous === true,
-      name: s.name || "",
-      service_type: s.service_type || "",
-      description: s.description || "",
-      /* Held as strings so the inputs can be genuinely empty — "" means the
-         vendor stated nothing, which is not the same as 0. */
-      capacity_min: s.capacity_min != null ? String(s.capacity_min) : "",
-      capacity_max: s.capacity_max != null ? String(s.capacity_max) : "",
-    } : { ...blank });
-  }
-
-  function setField(k, v) {
-    setEditing(e => {
-      const next = { ...e, [k]: v };
-      /* Subs differ per category, so changing the category clears both the
-         array and the mirrored primary — otherwise a food truck that switches
-         to Rentals keeps claiming "catering". */
-      if (k === "category") { next.subcategory = ""; next.subcategories = []; }
-      return next;
-    });
-    setErr("");
-  }
-
-  async function addPhotos(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const roomLeft = MAX_PHOTOS - (editing.photos.length || 0);
-    if (files.length > roomLeft) {
-      setErr(roomLeft <= 0
-        ? `You already have ${MAX_PHOTOS} photos, the maximum. Remove one to add another.`
-        : `You can add ${roomLeft} more photo${roomLeft === 1 ? "" : "s"} — ${MAX_PHOTOS} is the maximum.`);
-      return;
-    }
-    setUploading(true); setErr("");
-    const session = await loadSession();
-    const added = [];
-    for (const file of files) {
-      const { url, error } = await uploadVendorPhoto(vendorId, file, session?.access_token);
-      if (error) { setErr(error); break; }
-      if (url) added.push(url);
-    }
-    if (added.length) setEditing(p => ({ ...p, photos: [...p.photos, ...added] }));
-    setUploading(false);
-  }
-
-  async function save() {
-    if (!editing.description.trim()) { setErr("Please describe this service."); return; }
-    /* Capacity is two optional numbers. Blank is allowed and meaningful, but a
-       value that is there has to make sense, and the pair has to agree — the
-       database enforces the same three rules, so catching them here is only
-       about giving the vendor a sentence instead of a constraint name. */
-    const capMinRaw = String(editing.capacity_min ?? "").trim();
-    const capMaxRaw = String(editing.capacity_max ?? "").trim();
-    const capMin = capMinRaw === "" ? null : Number(capMinRaw);
-    const capMax = capMaxRaw === "" ? null : Number(capMaxRaw);
-    if (capMin !== null && (!Number.isInteger(capMin) || capMin < 0)) {
-      setErr("Minimum guests must be a whole number, 0 or more — or leave it blank."); return;
-    }
-    if (capMax !== null && (!Number.isInteger(capMax) || capMax < 1)) {
-      setErr("Maximum guests must be a whole number of 1 or more — or leave it blank for no limit."); return;
-    }
-    if (capMin !== null && capMax !== null && capMin > capMax) {
-      setErr(`Your minimum (${capMin}) is larger than your maximum (${capMax}). Swap them, or clear one.`); return;
-    }
-    setBusy(true);
-    const res = await saveService(vendorId, editing);
-    setBusy(false);
-    if (!res.ok) { setErr(res.error); return; }
-    setOk("Service saved."); setEditing(null); load();
-    setTimeout(() => setOk(""), 2500);
-  }
-
-  async function remove(s) {
-    if (!window.confirm("Delete this service? Customers will no longer see it.")) return;
-    setBusy(true);
-    const res = await deleteService(vendorId, s.id);
-    setBusy(false);
-    if (!res.ok) { setErr(res.error); return; }
-    load();
-  }
-
-  const F = { width:"100%", height:42, padding:"0 12px", border:`1px solid ${C.border}`,
-              borderRadius:9, fontSize:13, boxSizing:"border-box", background:"#fff" };
-  const L = { display:"block", fontSize:11, fontWeight:700, color:C.midGray, margin:"10px 0 4px" };
-  const catLabel = id => (CATEGORIES.find(c => c.id === id) || {}).label || id;
-
-  return (
-    <div style={{ marginTop:18, borderTop:`1px solid ${C.border}`, paddingTop:16 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <div>
-          <p style={{ margin:0, fontSize:13, fontWeight:800, color:C.black }}>Your listings</p>
-          <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-            Offer as many as you like, in different categories — a venue can also
-            list rentals, A/V or a DJ. Each appears as its own listing.
-          </p>
-        </div>
-        {!editing && (
-          <button onClick={() => startEdit(null)} className="btn"
-            style={{ padding:"8px 14px", borderRadius:9, border:"none", background:C.orange,
-                     color:"#fff", fontSize:12, fontWeight:700, whiteSpace:"nowrap" }}>
-            + Add listing
-          </button>
-        )}
-      </div>
-
-      {err && <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", color:"#B91C1C",
-                            borderRadius:9, padding:"9px 12px", marginTop:10, fontSize:12, fontWeight:600 }}>⚠ {err}</div>}
-      {ok  && <div style={{ background:C.greenSoft, border:`1px solid ${C.green}55`, color:"#065F46",
-                            borderRadius:9, padding:"9px 12px", marginTop:10, fontSize:12, fontWeight:600 }}>✓ {ok}</div>}
-
-      {/* Existing services */}
-      {loading ? (
-        <p style={{ fontSize:12, color:C.lightGray, marginTop:12 }}>Loading services…</p>
-      ) : !editing && (
-        <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:8 }}>
-          {services.length === 0 && (
-            <p style={{ fontSize:12, color:C.midGray, background:"#F9FAFB", border:`1px dashed ${C.border}`,
-                        borderRadius:10, padding:"14px", textAlign:"center" }}>
-              No listings yet. Tap "+ Add listing" to create your first one.
-            </p>
-          )}
-          {services.map(s => {
-            const pics = parsePhotos(s.photos);
-            return (
-              <div key={s.id} style={{ display:"flex", gap:10, alignItems:"center", background:"#F9FAFB",
-                                       border:`1px solid ${C.border}`, borderRadius:11, padding:"10px 12px" }}>
-                {pics[0]
-                  ? <img src={pics[0]} alt="" style={{ width:42, height:42, borderRadius:8, objectFit:"cover", flexShrink:0 }} />
-                  : <div style={{ width:42, height:42, borderRadius:8, background:"#EEE", flexShrink:0,
-                                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🏪</div>}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ margin:0, fontSize:13, fontWeight:700, color:C.black }}>
-                    {s.name || s.service_type || s.subcategory || catLabel(s.category)}
-                  </p>
-                  <p style={{ margin:"1px 0 0", fontSize:11, color:C.midGray }}>
-                    {[s.service_type, catLabel(s.category)].filter(Boolean).join(" · ")}
-                    {s.price_value != null ? ` · $${Number(s.price_value).toLocaleString()}` : " · Contact for pricing"}
-                    {s.category !== "places" ? (s.offsite ? " · 🚗 off-site OK" : " · 📍 on-site only") : ""}
-                    {s.active === false ? " · hidden" : ""}
-                  </p>
-                </div>
-                <button onClick={() => startEdit(s)} className="btn"
-                  style={{ padding:"6px 10px", borderRadius:8, border:`1px solid ${C.border}`,
-                           background:"#fff", fontSize:11, fontWeight:700, color:C.black }}>Edit</button>
-                <button onClick={() => remove(s)} disabled={busy} className="btn"
-                  style={{ padding:"6px 9px", borderRadius:8, border:"1px solid #FCA5A5",
-                           background:"#FEF2F2", fontSize:11, fontWeight:700, color:"#B91C1C" }}>✕</button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Add / edit form */}
-      {editing && (
-        <div style={{ marginTop:12, background:"#fff", border:`1.5px solid ${C.orangeBorder}`,
-                      borderRadius:12, padding:"12px 14px" }}>
-          <p style={{ margin:0, fontSize:12, fontWeight:800, color:C.orange }}>
-            {editing.id ? "Edit service" : "New service"}
-          </p>
-
-          <label style={L}>Business name * <span style={{ color:C.lightGray, fontWeight:500 }}>(the name clients will see)</span></label>
-          <input style={F} value={editing.name || ""}
-            onChange={e => setField("name", e.target.value)}
-            placeholder="e.g. DJ Juanchis Entertainers, El Fuego Taco Truck" />
-          <p style={{ margin:"3px 0 0", fontSize:10.5, color:C.lightGray }}>
-            This is the headline customers see for this listing. Give each listing its own name so they can tell your offerings apart.
-          </p>
-
-          <label style={L}>Service type *</label>
-          <select style={F} value={editing.category}
-            onChange={e => { const c=e.target.value; setField("category", c);
-                             setField("service_type", (CATEGORIES.find(x=>x.id===c)||{}).label || c); }}>
-            {CATEGORIES.filter(c => c.id !== "all" && c.id !== "build").map(c => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </select>
-
-          {(CAT_SUBS[editing.category] || []).length > 0 && (() => {
-            /* A food truck is often also catering, and sometimes a mobile bar.
-               One subcategory forced vendors to pick the single best lie about
-               their business, and customers browsing "Catering" never saw them.
-
-               Three is the cap. Without one, the rational move for every vendor
-               is to tick everything, and then these filters stop meaning
-               anything for the customer. */
-            const MAX = 3;
-            const picked = Array.isArray(editing.subcategories) ? editing.subcategories : [];
-            const toggle = (id) => {
-              const has = picked.includes(id);
-              if (!has && picked.length >= MAX) return;   // at the cap, ignore
-              const next = has ? picked.filter(x => x !== id) : [...picked, id];
-              setEditing(e => ({ ...e, subcategories: next, subcategory: next[0] || "" }));
-              setErr("");
-            };
-            return (
-              <>
-                <label style={L}>
-                  What this service covers{" "}
-                  <span style={{ fontWeight:500, color:C.midGray }}>
-                    — pick up to {MAX} ({picked.length}/{MAX})
-                  </span>
-                </label>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginBottom:4 }}>
-                  {(CAT_SUBS[editing.category] || []).map(s => {
-                    const on   = picked.includes(s.id);
-                    const full = !on && picked.length >= MAX;
-                    return (
-                      <button key={s.id} type="button" onClick={() => toggle(s.id)}
-                        disabled={full}
-                        title={full ? `Remove one first — ${MAX} is the maximum` : s.d || s.l}
-                        className="btn"
-                        style={{ padding:"7px 12px", borderRadius:99, fontSize:12, fontWeight:700,
-                                 cursor: full ? "not-allowed" : "pointer",
-                                 border:`1.5px solid ${on ? C.orange : C.border}`,
-                                 background: on ? C.orangeSoft : "#fff",
-                                 color: on ? C.orange : (full ? C.lightGray : C.midGray),
-                                 opacity: full ? 0.55 : 1 }}>
-                        {on ? "✓ " : ""}{s.e} {s.l}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p style={{ margin:"0 0 4px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-                  {picked.length === 0
-                    ? "Optional, but listings that pick at least one show up in far more searches."
-                    : picked.length >= MAX
-                      ? `That's the maximum. The first one, ${
-                          ((CAT_SUBS[editing.category]||[]).find(x=>x.id===picked[0])||{}).l || picked[0]
-                        }, is what customers see on your card.`
-                      : `Customers browsing any of these will find this listing. The first one, ${
-                          ((CAT_SUBS[editing.category]||[]).find(x=>x.id===picked[0])||{}).l || picked[0]
-                        }, shows on your card.`}
-                </p>
-              </>
-            );
-          })()}
-
-          <label style={L}>Describe this service *</label>
-          <textarea value={editing.description} onChange={e => setField("description", e.target.value)}
-            rows={3} placeholder="What's included, and what makes it different."
-            style={{ ...F, height:"auto", padding:"10px 12px", resize:"vertical", fontFamily:"inherit" }} />
-
-          <div style={{ display:"flex", gap:8 }}>
-            <div style={{ flex:1 }}>
-              <label style={L}>Starting price</label>
-              <input style={F} type="number" min="0" value={editing.price_value}
-                onChange={e => setField("price_value", e.target.value)} placeholder="Blank = contact us" />
-            </div>
-            <div style={{ flex:1 }}>
-              <label style={L}>Guest capacity</label>
-              <div style={{ display:"flex", gap:8 }}>
-                <input style={F} type="number" min="0" step="1" inputMode="numeric"
-                  value={editing.capacity_min ?? ""}
-                  onChange={e => setField("capacity_min", e.target.value)}
-                  placeholder="Min (optional)" aria-label="Minimum guests (optional)" />
-                <input style={F} type="number" min="1" step="1" inputMode="numeric"
-                  value={editing.capacity_max ?? ""}
-                  onChange={e => setField("capacity_max", e.target.value)}
-                  placeholder="Max" aria-label="Maximum guests" />
-              </div>
-            </div>
-          </div>
-
-          {/* These two numbers decide which searches you appear in and which
-              requests you are allowed to accept, so they are worth getting
-              right — this is why the old free-text box is gone. */}
-          <p style={{ margin:"6px 0 0", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-            <strong>Minimum guests</strong> is optional — set it only if you turn down events below a
-            certain size. <strong>Leave the maximum blank if you have no limit</strong>; blank means
-            no limit, not zero. Customers searching for a headcount outside this range won't see
-            this listing, and you won't be able to accept a request outside it.
-          </p>
-
-          {/* Off-site availability — key for venues whose sub-services (decor,
-              sound, DJs, catering…) can also travel to other events. */}
-          {editing.category !== "places" && (
-            <div style={{ marginTop:12, background:"#F9FAFB", border:`1px solid ${C.border}`, borderRadius:11, padding:"12px 14px" }}>
-              <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>
-                Can you provide this at the customer's location (off-site)?
-              </p>
-              <p style={{ margin:"3px 0 10px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-                Choose "Yes" if you'll travel to other events — not only at your own venue/space.
-              </p>
-              <div style={{ display:"flex", gap:8 }}>
-                {[["yes","🚗 Yes — I travel off-site", true],["no","📍 No — on-site / my location only", false]].map(([k,l,val]) => {
-                  const on = (editing.offsite === true) === val;
-                  return (
-                    <button key={k} type="button" onClick={() => setField("offsite", val)} className="btn"
-                      style={{ flex:1, padding:"9px 8px", borderRadius:9, fontSize:12, fontWeight:700, cursor:"pointer",
-                               border:`1.5px solid ${on ? C.orange : C.border}`,
-                               background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                      {l}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Per-listing travel radius + service areas — a vendor may serve
-                  different areas from different listings/locations. */}
-              <div style={{ marginTop:12 }}>
-                <label style={L}>Travel radius (miles) for this listing</label>
-                <input style={{ ...F, maxWidth:180 }} type="number" min="0" value={editing.travel_miles || ""}
-                  onChange={e => setField("travel_miles", e.target.value)} placeholder="e.g. 50" />
-              </div>
-              <div style={{ marginTop:12 }}>
-                <label style={L}>Service areas for this listing <span style={{ color:C.lightGray, fontWeight:500 }}>(tap all that apply)</span></label>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:4 }}>
-                  {TX_CITIES.map(city => {
-                    const sel = (editing.service_areas || "").split(",").map(x => x.trim()).filter(Boolean);
-                    const on = sel.includes(city);
-                    return (
-                      <button type="button" key={city}
-                        onClick={() => {
-                          const next = on ? sel.filter(c => c !== city) : [...sel, city];
-                          setField("service_areas", next.join(", "));
-                        }}
-                        style={{ padding:"5px 11px", borderRadius:99, fontSize:11.5, fontWeight:600, cursor:"pointer",
-                                 border:`1.5px solid ${on ? C.orange : C.border}`,
-                                 background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                        {on ? "✓ " : ""}{city}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <p style={{ margin:"6px 0 0", fontSize:10.5, color:C.lightGray }}>
-                Leave travel radius blank and no cities selected to use your account defaults.
-              </p>
-            </div>
-          )}
-
-          {/* Availability for THIS listing — click-only, no typing. */}
-          <div style={{ marginTop:12, background:"#F9FAFB", border:`1px solid ${C.border}`,
-                        borderRadius:11, padding:"12px 14px" }}>
-            {/* Deliberately no longer called "availability". Vendors also have a
-                calendar on their profile, and two things with the same name
-                answering different questions is what made this confusing. This
-                one is the recurring weekly pattern for ONE service; the calendar
-                is the specific dates the whole business is away. */}
-            <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>When is this service offered?</p>
-            <p style={{ margin:"3px 0 9px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-              The days and times <em>this particular service</em> runs — a venue might be all day
-              while your DJ listing is evenings only.{" "}
-              <strong>Specific dates you're away are set once</strong> on your Availability tab and
-              apply to every listing, so there's no need to repeat them here.
-            </p>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:9 }}>
-              {AVAIL_DAYS.map(d => {
-                const cur = parseEventTypes(editing.avail_days);
-                const on = cur.includes(d);
-                return (
-                  <button type="button" key={d}
-                    onClick={()=> setField("avail_days", on ? cur.filter(x=>x!==d) : [...cur, d])}
-                    style={{ padding:"6px 13px", borderRadius:99, fontSize:11.5, fontWeight:700, cursor:"pointer",
-                             border:`1.5px solid ${on ? C.orange : C.border}`,
-                             background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                    {d}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {TIME_BLOCKS.map(([id, label]) => {
-                const cur = parseEventTypes(editing.avail_blocks);
-                const on = cur.includes(id);
-                return (
-                  <button type="button" key={id}
-                    onClick={()=> setField("avail_blocks", on ? cur.filter(x=>x!==id) : [...cur, id])}
-                    style={{ padding:"6px 12px", borderRadius:99, fontSize:11.5, fontWeight:600, cursor:"pointer",
-                             border:`1.5px solid ${on ? C.orange : C.border}`,
-                             background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                    {on ? "✓ " : ""}{label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* How many events can this listing cover in one day? */}
-          <div style={{ marginTop:12, background:"#F9FAFB", border:`1px solid ${C.border}`,
-                        borderRadius:11, padding:"12px 14px" }}>
-            <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>
-              Can you do more than one event per day with this listing?
-            </p>
-            <p style={{ margin:"3px 0 9px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-              This stops double-bookings you can't actually cover.
-            </p>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              {[["one","One event per day",1,false],
-                ["multi","Several, with a gap between",2,false],
-                ["same","Several at the same time",99,true]].map(([k,label,defMax,sim]) => {
-                const on = sim ? editing.simultaneous === true
-                               : (editing.simultaneous !== true && (k === "one"
-                                   ? (Number(editing.max_per_day) || 1) <= 1
-                                   : (Number(editing.max_per_day) || 1) > 1));
-                return (
-                  <button key={k} type="button"
-                    onClick={()=>{ setField("simultaneous", sim); setField("max_per_day", defMax); }}
-                    style={{ flex:"1 1 150px", padding:"9px 10px", borderRadius:9, fontSize:11.5,
-                             fontWeight:700, cursor:"pointer",
-                             border:`1.5px solid ${on ? C.orange : C.border}`,
-                             background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Follow-ups only when they're relevant */}
-            {editing.simultaneous !== true && (Number(editing.max_per_day) || 1) > 1 && (
-              <div style={{ display:"flex", gap:10, marginTop:11 }}>
-                <div style={{ flex:1 }}>
-                  <label style={L}>Max events per day</label>
-                  <select style={F} value={editing.max_per_day || 2}
-                    onChange={e => setField("max_per_day", e.target.value)}>
-                    {[2,3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </div>
-                <div style={{ flex:1 }}>
-                  <label style={L}>Hours needed between events</label>
-                  <select style={F} value={editing.gap_hours || 2}
-                    onChange={e => setField("gap_hours", e.target.value)}>
-                    {[1,2,3,4,5,6,8,12].map(n => <option key={n} value={n}>{n} hour{n===1?"":"s"}</option>)}
-                  </select>
-                </div>
-              </div>
-            )}
-            {editing.simultaneous === true && (
-              <div style={{ marginTop:11 }}>
-                <label style={L}>How many at the same time?</label>
-                <select style={{ ...F, maxWidth:200 }} value={editing.max_per_day || 2}
-                  onChange={e => setField("max_per_day", e.target.value)}>
-                  {[2,3,4,5,6,8,10].map(n => <option key={n} value={n}>{n} at once</option>)}
-                  <option value={99}>No limit</option>
-                </select>
-              </div>
-            )}
-          </div>
-
-          {/* How much warning do you need?
-              Stored as hours rather than a number plus a unit, so "same day, 12
-              hours" and "two weeks" are the same field and the booking check is
-              one comparison instead of a unit conversion. */}
-          <div style={{ marginTop:12, background:"#F9FAFB", border:`1px solid ${C.border}`,
-                        borderRadius:11, padding:"12px 14px" }}>
-            <p style={{ margin:0, fontSize:12.5, fontWeight:800 }}>
-              How much notice do you need before an event?
-            </p>
-            <p style={{ margin:"3px 0 9px", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-              Customers won't be able to request this service any later than this. Use it to stop
-              last-minute requests you cannot realistically prepare for.
-            </p>
-            <select style={{ ...F, maxWidth:240 }}
-              value={editing.min_notice_hours == null ? 0 : editing.min_notice_hours}
-              onChange={e => setField("min_notice_hours", e.target.value)}>
-              <option value={0}>No minimum — same day is fine</option>
-              <option value={6}>6 hours</option>
-              <option value={12}>12 hours</option>
-              <option value={24}>1 day</option>
-              <option value={48}>2 days</option>
-              <option value={72}>3 days</option>
-              <option value={168}>1 week</option>
-              <option value={336}>2 weeks</option>
-              <option value={720}>1 month</option>
-            </select>
-          </div>
-
-          {/* Photos for this specific service */}
-          <label style={L}>
-            Photos for this service{" "}
-            <span style={{ fontWeight:400, color:C.midGray }}>
-              ({(editing.photos || []).length}/{MAX_PHOTOS} — the first one is the cover customers see)
-            </span>
-          </label>
-          <PhotoManager
-            photos={editing.photos}
-            onChange={(next) => setEditing(e => ({ ...e, photos: next }))}
-            size={72} />
-          <input type="file" accept="image/*" multiple onChange={addPhotos}
-            disabled={(editing.photos || []).length >= MAX_PHOTOS}
-            style={{ fontSize:11, color:C.midGray }} />
-          {uploading && <p style={{ fontSize:11, color:C.orange, margin:"4px 0 0" }}>Uploading…</p>}
-
-          {/* Pricing options / packages */}
-          <div style={{ marginTop:14, borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <p style={{ margin:0, fontSize:12, fontWeight:800, color:C.black }}>Pricing options</p>
-                <p style={{ margin:"2px 0 0", fontSize:10.5, color:C.midGray, lineHeight:1.5 }}>
-                  Offer tiers — e.g. “4 hours”, “6 hours + lighting”. Customers only
-                  see an option once it has a price.
-                </p>
-              </div>
-              {(editing.packages || []).length < 6 && (
-                <button onClick={() => setEditing(e => ({ ...e,
-                    packages: [...(e.packages || []), { name:`Option ${(e.packages||[]).length + 1}`, description:"", price:"" }] }))}
-                  className="btn"
-                  style={{ padding:"6px 11px", borderRadius:8, border:`1px solid ${C.orange}`,
-                           background:"#fff", color:C.orange, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>
-                  + Add option
-                </button>
-              )}
-            </div>
-
-            {(editing.packages || []).length === 0 && (
-              <p style={{ margin:"8px 0 0", fontSize:11, color:C.lightGray }}>
-                No options yet — the single starting price above is used instead.
-              </p>
-            )}
-
-            {(editing.packages || []).map((p, i) => {
-              const priced = Number.isFinite(Number(p.price)) && Number(p.price) > 0;
-              return (
-                <div key={i} style={{ marginTop:8, padding:"10px 11px", borderRadius:10,
-                                      background: priced ? "#F9FAFB" : "#FFFBEB",
-                                      border:`1px solid ${priced ? C.border : "#FCD34D"}` }}>
-                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                    <input value={p.name} placeholder={`Option ${i+1}`}
-                      onChange={e => setEditing(ed => ({ ...ed,
-                        packages: ed.packages.map((x, j) => j===i ? { ...x, name:e.target.value } : x) }))}
-                      style={{ ...F, height:36, flex:1, fontWeight:700 }} />
-                    <input type="number" min="0" value={p.price} placeholder="Price"
-                      onChange={e => setEditing(ed => ({ ...ed,
-                        packages: ed.packages.map((x, j) => j===i ? { ...x, price:e.target.value } : x) }))}
-                      style={{ ...F, height:36, width:100 }} />
-                    <button onClick={() => setEditing(ed => ({ ...ed,
-                        packages: ed.packages.filter((_, j) => j !== i) }))}
-                      className="btn"
-                      style={{ padding:"6px 9px", borderRadius:8, border:"1px solid #FCA5A5",
-                               background:"#FEF2F2", color:"#B91C1C", fontSize:11, fontWeight:700 }}>✕</button>
-                  </div>
-                  <input value={p.description} placeholder="What's included in this option"
-                    onChange={e => setEditing(ed => ({ ...ed,
-                      packages: ed.packages.map((x, j) => j===i ? { ...x, description:e.target.value } : x) }))}
-                    style={{ ...F, height:36, marginTop:6 }} />
-                  {!priced && (
-                    <p style={{ margin:"6px 0 0", fontSize:10.5, color:"#B45309", fontWeight:600 }}>
-                      ⚠ Hidden from customers — add a price to show this option.
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Add-ons — optional extras a customer can add on top of the booking */}
-          <div style={{ marginTop:14 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <p style={{ margin:0, fontSize:12, fontWeight:800, color:C.black }}>Add-ons (optional extras)</p>
-                <p style={{ margin:"2px 0 0", fontSize:10.5, color:C.lightGray }}>
-                  Extras customers can add on top — e.g. "Fog machine +$100". Not separate listings.
-                </p>
-              </div>
-              {(editing.addons || []).length < 8 && (
-                <button type="button" onClick={() => setEditing(e => ({ ...e,
-                    addons: [...(e.addons || []), { name:"", price:"" }] }))}
-                  className="btn"
-                  style={{ padding:"6px 11px", borderRadius:8, border:`1px solid ${C.orange}`,
-                           background:"#FFF7ED", color:C.orange, fontSize:11.5, fontWeight:700 }}>
-                  + Add add-on
-                </button>
-              )}
-            </div>
-            {(editing.addons || []).map((a, i) => (
-              <div key={i} style={{ display:"flex", gap:6, alignItems:"center", marginTop:8 }}>
-                <input value={a.name} placeholder={`Add-on ${i+1} (e.g. Extra hour)`}
-                  onChange={e => setEditing(ed => ({ ...ed,
-                    addons: ed.addons.map((x, j) => j===i ? { ...x, name:e.target.value } : x) }))}
-                  style={{ ...F, height:36, flex:1 }} />
-                <span style={{ fontSize:13, color:C.midGray }}>+$</span>
-                <input type="number" min="0" value={a.price} placeholder="0"
-                  onChange={e => setEditing(ed => ({ ...ed,
-                    addons: ed.addons.map((x, j) => j===i ? { ...x, price:e.target.value } : x) }))}
-                  style={{ ...F, height:36, width:90 }} />
-                <button onClick={() => setEditing(ed => ({ ...ed,
-                    addons: ed.addons.filter((_, j) => j !== i) }))}
-                  className="btn"
-                  style={{ padding:"6px 9px", borderRadius:8, border:"1px solid #FCA5A5",
-                           background:"#FEF2F2", color:"#B91C1C", fontSize:11, fontWeight:700 }}>✕</button>
-              </div>
-            ))}
-          </div>
-
-
-          <div style={{ display:"flex", gap:8, marginTop:12 }}>
-            <button onClick={save} disabled={busy || uploading} className="btn"
-              style={{ flex:1, padding:"10px 0", borderRadius:10, border:"none",
-                       background: busy ? "#F3F4F6" : C.orange, color: busy ? C.midGray : "#fff",
-                       fontSize:13, fontWeight:700 }}>
-              {busy ? "Saving…" : "Save service"}
-            </button>
-            <button onClick={() => { setEditing(null); setErr(""); }} className="btn"
-              style={{ flex:1, padding:"10px 0", borderRadius:10, border:"none",
-                       background:"#F3F4F6", color:C.midGray, fontSize:13 }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function VendorListingEditor({ user, onClose, onSaved }) {
+/* ServicesManager moved to src/dashboards/VendorDashboard.jsx (23 Sep 2026) - loaded on demand. */
+export function VendorListingEditor({ user, onClose, onSaved }) {
   const [f, setF]           = useState(null);
   const [loading, setLoad]  = useState(true);
   const [saving, setSaving] = useState(false);
@@ -11560,83 +10293,8 @@ function InfoPageModal({ page, onClose }) {
    ══════════════════════════════════════════════════════════════════════════ */
 /* Lets a vendor rate a customer after a confirmed booking (symmetric with the
    customer reviewing the vendor). Shows the customer's current rating too. */
-function CustomerRating({ vendorId, customerId, customerName, bookingId }) {
-  const [mine,   setMine]   = useState(undefined);   // undefined = loading
-  const [summary,setSummary]= useState({ avg:null, count:0 });
-  const [open,   setOpen]   = useState(false);
-  const [stars,  setStars]  = useState(5);
-  const [note,   setNote]   = useState("");
-  const [err,    setErr]    = useState("");
-  const [busy,   setBusy]   = useState(false);
-
-  async function load() {
-    const [ex, revs] = await Promise.all([
-      existingReview(vendorId, customerId, "vendor_to_user").catch(()=>null),
-      getReviewsAbout(customerId).catch(()=>[]),
-    ]);
-    setMine(ex);
-    setSummary(ratingSummary(revs.filter(r => r.direction === "vendor_to_user")));
-  }
-  useEffect(() => { load(); }, [customerId]);
-
-  async function submit() {
-    setBusy(true); setErr("");
-    const res = await submitReviewDB({
-      bookingId, authorId: vendorId, subjectId: customerId,
-      direction: "vendor_to_user", rating: stars, body: note.trim() || null,
-    });
-    setBusy(false);
-    if (!res.ok) { setErr(res.error); return; }
-    setOpen(false); setNote(""); load();
-  }
-
-  return (
-    <div style={{ marginTop:10, borderTop:`1px dashed ${C.border}`, paddingTop:10 }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-        <span style={{ fontSize:11, color:C.midGray }}>
-          {customerName}{summary.count > 0 ? ` · ★ ${summary.avg} (${summary.count})` : " · no ratings yet"}
-        </span>
-        {mine === undefined ? null : mine ? (
-          <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>✓ You rated ★{mine.rating}</span>
-        ) : !open ? (
-          <button onClick={() => setOpen(true)} className="btn"
-            style={{ padding:"5px 11px", borderRadius:8, border:`1px solid ${C.border}`,
-                     background:"#fff", fontSize:11, fontWeight:700, color:C.black }}>
-            Rate customer
-          </button>
-        ) : null}
-      </div>
-      {open && !mine && (
-        <div style={{ marginTop:8, background:"#FAFAFA", border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px" }}>
-          <Stars r={stars} size={20} interactive onRate={setStars} />
-          <textarea value={note} onChange={e=>setNote(e.target.value)}
-            placeholder="How was working with this customer? (optional)"
-            style={{ width:"100%", minHeight:56, marginTop:8, border:`1px solid ${C.border}`,
-                     borderRadius:9, padding:"8px 10px", fontSize:12, resize:"vertical", fontFamily:"inherit" }} />
-          {err && <p style={{ color:"#B91C1C", fontSize:11, margin:"6px 0 0", fontWeight:600 }}>⚠ {err}</p>}
-          <div style={{ display:"flex", gap:7, marginTop:8 }}>
-            <button onClick={submit} disabled={busy} className="btn"
-              style={{ padding:"7px 16px", borderRadius:8, border:"none", background:C.orange,
-                       color:"#fff", fontSize:12, fontWeight:700 }}>
-              {busy ? "Saving…" : "Submit rating"}
-            </button>
-            <button onClick={()=>setOpen(false)} className="btn"
-              style={{ padding:"7px 12px", borderRadius:8, border:"none", background:"#F3F4F6", color:C.midGray, fontSize:12 }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* Vendor's inquiry inbox — customer questions with a reply box. */
-/* ─── MESSAGES ───────────────────────────────────────────────────────────────
-   One inbox used by customers, vendors and the admin. Threads stay open until
-   3 days after the event or until someone presses Stop; admin threads only the
-   admin can end. */
-function MessagesPanel({ user, isAdmin = false, focusId = null }) {
+/* CustomerRating moved to src/dashboards/VendorDashboard.jsx (23 Sep 2026) - loaded on demand. */
+export function MessagesPanel({ user, isAdmin = false, focusId = null }) {
   const [convs, setConvs]   = useState([]);
   const [openId, setOpenId] = useState(focusId);
   const [msgs, setMsgs]     = useState([]);
@@ -11816,709 +10474,8 @@ function MessagesPanel({ user, isAdmin = false, focusId = null }) {
   );
 }
 
-function VendorInquiries({ vendorId }) {
-  const [items, setItems]   = useState([]);
-  const [loading, setLoad]  = useState(true);
-  const [drafts, setDrafts] = useState({});
-  const [busyId, setBusyId] = useState(null);
-  const [err, setErr]       = useState("");
-
-  const load = React.useCallback(() => {
-    setLoad(true);
-    getVendorInquiries(vendorId).then(list => { setItems(list); setLoad(false); });
-  }, [vendorId]);
-  useEffect(() => { load(); }, [load]);
-
-  async function send(id) {
-    const text = (drafts[id] || "").trim();
-    if (!text) return;
-    setBusyId(id); setErr("");
-    const res = await replyToInquiry(id, text);
-    setBusyId(null);
-    if (!res.ok) { setErr(res.error); return; }
-    setDrafts(d => ({ ...d, [id]: "" }));
-    load();
-  }
-
-  return (
-    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-      <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Inquiries</h3>
-      <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
-        Questions from customers about your listings. Replying notifies them.
-      </p>
-      {err && (
-        <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", color:"#B91C1C",
-                      borderRadius:9, padding:"9px 12px", marginBottom:12, fontSize:12, fontWeight:600 }}>⚠ {err}</div>
-      )}
-      {loading ? (
-        <p style={{ fontSize:13, color:C.midGray, margin:0 }}>Loading inquiries…</p>
-      ) : items.length === 0 ? (
-        <p style={{ fontSize:13, color:C.midGray, margin:0 }}>No inquiries yet.</p>
-      ) : items.map(q => (
-        <div key={q.id} style={{ borderTop:`1px solid ${C.border}`, padding:"12px 0" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
-            <p style={{ margin:0, fontSize:13, fontWeight:800 }}>
-              👤 {q.userName}{q.serviceName ? <span style={{ color:C.midGray, fontWeight:600 }}> · about {q.serviceName}</span> : null}
-            </p>
-            <span style={{ fontSize:10.5, color:C.lightGray }}>
-              {new Date(q.createdAt).toLocaleDateString()}
-            </span>
-          </div>
-          <p style={{ margin:"6px 0 0", fontSize:12.5, color:"#444", fontStyle:"italic", lineHeight:1.5 }}>
-            “{q.body}”
-          </p>
-          {q.reply ? (
-            <div style={{ marginTop:8, background:"#F0FDF4", border:"1px solid #BBF7D0",
-                          borderRadius:10, padding:"9px 12px" }}>
-              <p style={{ margin:0, fontSize:10.5, fontWeight:800, color:C.green,
-                          textTransform:"uppercase", letterSpacing:"0.04em" }}>✓ Your reply</p>
-              <p style={{ margin:"3px 0 0", fontSize:12.5, color:"#166534", lineHeight:1.5 }}>{q.reply}</p>
-            </div>
-          ) : (
-            <div style={{ display:"flex", gap:8, marginTop:9 }}>
-              <input value={drafts[q.id] || ""} onChange={e => setDrafts(d => ({ ...d, [q.id]: e.target.value }))}
-                placeholder="Write your reply…"
-                style={{ flex:1, height:38, padding:"0 11px", border:`1px solid ${C.border}`,
-                         borderRadius:9, fontSize:12.5, background:"#fff" }} />
-              <button onClick={() => send(q.id)} disabled={busyId === q.id} className="btn"
-                style={{ padding:"0 16px", borderRadius:9, background:C.orange, color:"#fff",
-                         border:"none", fontSize:12.5, fontWeight:700 }}>
-                {busyId === q.id ? "Sending…" : "Reply"}
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function VendorDashboard({ user, onLogout }) {
-  const [tab,      setTab]      = useState("overview");
-  const [reqView,  setReqView]  = useState("list");   // 'list' | 'calendar'
-  const [requests, setRequests] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [listing,  setListing]  = useState(null);
-  const [notifs,   setNotifs]   = useState([]);
-  const [editing,  setEditing]  = useState(false);
-  const [busyId,   setBusyId]   = useState(null);
-  const [err,      setErr]      = useState("");
-  /* Reviews written ABOUT this vendor. The rating tile used to be the only
-     mention of them anywhere in the dashboard, and it linked to Requests — so
-     a vendor could see they had 5.0 stars and had no way to read why. */
-  const [revs,     setRevs]     = useState([]);
-
-  /* Account settings. Vendors had no way to leave: deactivate and delete lived
-     only in the customer panel, which a vendor account never opens. Same two
-     RPCs, which already clear vendor_profiles and vendor_services, so a vendor
-     who leaves does not strand live listings on the marketplace. */
-  const [acctBusy,      setAcctBusy]      = useState(false);
-  const [acctErr,       setAcctErr]       = useState("");
-  const [confirmAction, setConfirmAction] = useState(null);  // null | "deactivate" | "delete"
-
-  async function doDeactivate() {
-    setAcctBusy(true); setAcctErr("");
-    const { error } = await sb.rpc("deactivate_my_account");
-    setAcctBusy(false);
-    if (error) { setConfirmAction(null); setAcctErr(error.message || "Could not deactivate your account."); return; }
-    onLogout();
-  }
-
-  async function doDeleteAccount() {
-    setAcctBusy(true); setAcctErr("");
-    const { error } = await sb.rpc("delete_my_account");
-    setAcctBusy(false);
-    if (error) {
-      setConfirmAction(null);
-      setAcctErr((error.message || "").indexOf("admin") >= 0
-        ? "Admin accounts cannot be deleted here. Remove admin access first."
-        : (error.message || "Could not delete your account."));
-      return;
-    }
-    onLogout();
-  }
-
-  const reload = React.useCallback(async () => {
-    setLoading(true);
-    const [r, l, n, rv] = await Promise.all([
-      RLS.getMyRequests(user).catch(()=>[]),
-      getMyListing(user.id).catch(()=>null),
-      getNotifs(user.id).catch(()=>[]),
-      getReviewsAbout(user.id).catch(()=>[]),
-    ]);
-    setRequests(Array.isArray(r) ? r : []);
-    setListing(l);
-    setNotifs(Array.isArray(n) ? n : []);
-    setRevs(Array.isArray(rv) ? rv : []);
-    setLoading(false);
-  }, [user]);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  async function respond(reqId, status) {
-    setBusyId(reqId); setErr("");
-    const updated = await RLS.respondToRequest(reqId, status, "", user);
-    setBusyId(null);
-    if (!updated || updated.__error) {
-      setErr((updated && updated.__error)
-        ? `Could not update: ${updated.__error}`
-        : "Could not update that request. Check the browser console for details.");
-      return;
-    }
-    reload();
-  }
-
-  const pending   = requests.filter(r => r.status === "pending");
-  const confirmed = requests.filter(r => r.status === "confirmed");
-  const declined  = requests.filter(r => r.status === "declined");
-  const isApproved = (listing?.verification_status || user.status) === "approved";
-  const unread = notifs.filter(n => !n.read).length;
-
-  const listingComplete = !!(listing?.business_name && listing?.description &&
-                             (Array.isArray(listing?.photos) && listing.photos.length));
-
-  const Metric = ({ label, value, sub, accent }) => (
-    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14,
-                  padding:"14px 16px", flex:"1 1 130px", minWidth:130 }}>
-      <p style={{ margin:0, fontSize:10, fontWeight:800, color:C.midGray, letterSpacing:"0.05em" }}>{label}</p>
-      <p style={{ margin:"4px 0 0", fontSize:24, fontWeight:800, color: accent || C.black }}>{value}</p>
-      {sub && <p style={{ margin:"2px 0 0", fontSize:11, color:C.lightGray }}>{sub}</p>}
-    </div>
-  );
-
-  const TABS = [["overview","Overview"],["requests","Requests"],["inquiries","Messages"],["listing","My listing"],
-                ["reviews","Reviews"],["calendar","Availability"],["notifs","Notifications"],
-                ["account","Account settings"]];
-
-  return (
-    <div className="plug" style={{ minHeight:"100vh", background:"#F7F8FA" }}>
-      <style>{GLOBAL_CSS}</style>
-
-      {/* Vendor header — no marketplace nav, no other vendors */}
-      <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`,
-                    padding:"12px 20px", display:"flex", alignItems:"center",
-                    justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => window.location.reload()} className="btn" title="Refresh"
-            style={{ border:"none", background:"none", padding:0, cursor:"pointer", display:"flex", alignItems:"center" }}>
-            <PlugMark size={26} />
-          </button>
-          <span style={{ fontSize:12, fontWeight:800, background:C.black, color:"#fff",
-                         padding:"3px 9px", borderRadius:99 }}>VENDOR</span>
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <span style={{ fontSize:13, fontWeight:700 }}>
-            {listing?.business_name || user.name || "My business"}
-          </span>
-          <button onClick={onLogout} className="btn"
-            style={{ border:`1px solid ${C.border}`, background:"#fff", borderRadius:9,
-                     padding:"6px 12px", fontSize:12, fontWeight:700, color:C.midGray }}>
-            Log out
-          </button>
-        </div>
-      </div>
-
-      <div style={{ maxWidth:1000, margin:"0 auto", padding:"18px 16px 60px" }}>
-
-        {/* Status banner */}
-        {!isApproved && (
-          <div style={{ background:"#FFFBEB", border:"1px solid #FCD34D", borderRadius:12,
-                        padding:"13px 15px", marginBottom:14 }}>
-            <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#92400E" }}>
-              ✓ Profile created — ⏳ under review
-            </p>
-            <p style={{ margin:"4px 0 9px", fontSize:12, color:"#B45309", lineHeight:1.6 }}>
-              <strong>Step 2: add your listings.</strong> A listing is one service customers can
-              book — a venue, a taco truck, a DJ set. Add as many as you offer. They go live
-              the moment your business is approved.
-            </p>
-            <button onClick={()=>setTab("listing")} className="btn"
-              style={{ padding:"8px 15px", borderRadius:9, border:"none", background:"#92400E",
-                       color:"#fff", fontSize:12, fontWeight:800, cursor:"pointer" }}>
-              + Add my first listing
-            </button>
-          </div>
-        )}
-        {isApproved && !listingComplete && (
-          <div style={{ background:"#EFF6FF", border:"1px solid #BFDBFE", borderRadius:12,
-                        padding:"12px 14px", marginBottom:14 }}>
-            <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#1E40AF" }}>
-              Step 2: add your listings to get booked
-            </p>
-            <p style={{ margin:"4px 0 6px", fontSize:12, color:"#1D4ED8" }}>
-              Listings with a description and photos get far more requests.
-            </p>
-            <button onClick={()=>setEditing(true)} className="btn"
-              style={{ background:C.black, color:"#fff", border:"none", borderRadius:8,
-                       padding:"7px 12px", fontSize:12, fontWeight:700 }}>
-              Complete my listing
-            </button>
-          </div>
-        )}
-        {err && (
-          <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", color:"#B91C1C",
-                        borderRadius:10, padding:"10px 12px", marginBottom:14, fontSize:12, fontWeight:600 }}>
-            ⚠ {err}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
-          {TABS.map(([k,l]) => (
-            <button key={k} onClick={()=>setTab(k)} className="btn"
-              style={{ padding:"7px 14px", borderRadius:99, fontSize:12, fontWeight:700,
-                       border:`1px solid ${tab===k?C.black:C.border}`,
-                       background: tab===k ? C.black : "#fff",
-                       color: tab===k ? "#fff" : C.midGray }}>
-              {l}{k==="requests" && pending.length ? ` (${pending.length})` : ""}
-              {k==="notifs" && unread ? ` (${unread})` : ""}
-            </button>
-          ))}
-        </div>
-
-        {loading ? <p style={{ fontSize:13, color:C.midGray }}>Loading your dashboard…</p> : (
-        <>
-          {/* OVERVIEW */}
-          {tab === "overview" && (
-            <>
-              <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
-                <div onClick={()=>setTab("requests")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="View requests">
-                  <Metric label="NEW REQUESTS" value={pending.length} sub="tap to review" accent={C.orange} />
-                </div>
-                <div onClick={()=>setTab("requests")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="View confirmed bookings">
-                  <Metric label="CONFIRMED"    value={confirmed.length} sub="tap to view" accent={C.green} />
-                </div>
-                <div onClick={()=>setTab("requests")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="View declined">
-                  <Metric label="DECLINED"     value={declined.length} sub="tap to view" />
-                </div>
-                <div onClick={()=>setTab("reviews")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Read your reviews">
-                  <Metric label="RATING"       value={listing?.rating ? Number(listing.rating).toFixed(1) : "—"}
-                    sub={revs.length ? `read ${revs.length} review${revs.length===1?"":"s"}` : "from reviews"} accent="#F59E0B" />
-                </div>
-                <div onClick={()=>setTab("listing")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Edit your listings & photos">
-                  <Metric label="PHOTOS"       value={(listing?.photos||[]).length} sub="tap to manage" />
-                </div>
-              </div>
-
-              <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-                <h3 style={{ margin:"0 0 10px", fontSize:14, fontWeight:800 }}>Latest requests</h3>
-                {pending.length === 0 ? (
-                  <p style={{ fontSize:13, color:C.midGray, margin:0 }}>
-                    No new requests right now. Customers who match your service area and capacity will appear here.
-                  </p>
-                ) : pending.slice(0,3).map(r => (
-                  <div key={r.id} style={{ borderTop:`1px solid ${C.border}`, padding:"10px 0" }}>
-                    <p style={{ margin:0, fontSize:13, fontWeight:700 }}>
-                      {r.eventType || "Event"} · {r.guests || "?"} guests
-                    </p>
-                    <p style={{ margin:"2px 0 0", fontSize:12, color:C.midGray }}>
-                      {r.eventDate || "Date TBD"} · {r.venue || "Venue TBD"}
-                    </p>
-                  </div>
-                ))}
-                {pending.length > 0 && (
-                  <button onClick={()=>setTab("requests")} className="btn"
-                    style={{ marginTop:10, background:C.black, color:"#fff", border:"none",
-                             borderRadius:9, padding:"8px 14px", fontSize:12, fontWeight:700 }}>
-                    Review all requests
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* INQUIRIES — customer questions + vendor replies */}
-          {tab === "inquiries" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Messages</h3>
-              <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
-                Talk with customers about their events. Threads stay open until 3 days after the event.
-              </p>
-              <MessagesPanel user={user} />
-            </div>
-          )}
-
-          {/* REQUESTS — approve / decline */}
-          {tab === "requests" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Booking requests</h3>
-              <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
-                You decide every booking — a request is only confirmed when you approve it.
-              </p>
-              <div style={{ display:"flex", gap:6, marginBottom:14, background:"#F3F4F6", borderRadius:10, padding:3, maxWidth:280 }}>
-                {[["list","☰ List"],["calendar","📅 Calendar"]].map(([v,l]) => (
-                  <button key={v} onClick={() => setReqView(v)} className="btn"
-                    style={{ flex:1, padding:"7px 0", borderRadius:8, border:"none", fontSize:12, fontWeight:700,
-                             background: reqView===v ? "#fff" : "transparent",
-                             color: reqView===v ? C.black : C.midGray,
-                             boxShadow: reqView===v ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
-                    {l}
-                  </button>
-                ))}
-              </div>
-              {reqView === "calendar" ? (
-                <EventsCalendar bookings={requests} role="vendor" />
-              ) : requests.length === 0 ? (
-                <p style={{ fontSize:13, color:C.midGray, margin:0 }}>No requests yet.</p>
-              ) : requests.map(r => (
-                <div key={r.id} style={{ borderTop:`1px solid ${C.border}`, padding:"14px 0" }}>
-                  {/* Header: what service + status */}
-                  <div style={{ display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginBottom:8 }}>
-                    <div style={{ flex:1, minWidth:200 }}>
-                      <p style={{ margin:0, fontSize:14, fontWeight:800 }}>
-                        🛎️ {r.serviceName || r.eventType || "Service request"}
-                        {r.packageName ? <span style={{ color:C.midGray, fontWeight:600 }}> · {r.packageName}</span> : null}
-                      </p>
-                      <p style={{ margin:"3px 0 0", fontSize:10, color:C.lightGray, fontFamily:"monospace" }}>
-                        Request {r.id}
-                      </p>
-                    </div>
-                    <span style={{ alignSelf:"flex-start", padding:"4px 11px", borderRadius:99,
-                                   fontSize:11, fontWeight:800,
-                                   background: isConfirmedStatus(r.status) ? C.greenSoft : isDeclinedStatus(r.status) ? "#FEF2F2" : isCancelledStatus(r.status) ? "#F3F4F6" : "#FFFBEB",
-                                   color: isConfirmedStatus(r.status) ? C.green : isDeclinedStatus(r.status) ? "#EF4444" : isCancelledStatus(r.status) ? C.midGray : "#D97706" }}>
-                      {isConfirmedStatus(r.status) ? "✓ Confirmed" : isDeclinedStatus(r.status) ? "✗ Declined"
-                        : isCancelledStatus(r.status) ? "Cancelled" : "⏳ Pending — awaiting your response"}
-                    </span>
-                  </div>
-
-                  {/* Full detail grid */}
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:"8px 16px",
-                                background:"#F9FAFB", border:`1px solid ${C.border}`, borderRadius:11, padding:"12px 14px" }}>
-                    {[
-                      ["👤 Requested by", r.userName || "Customer"],
-                      ["🎉 Event type",   r.eventType || "—"],
-                      ["📅 Date",         r.eventDate || "TBD"],
-                      ["🕐 Time",         fmtTimeRange(r.startTime, r.endTime) || "TBD"],
-                      ["👥 Guests",       r.guests || "—"],
-                      ["📍 Location",     formatEventLocation(r) || r.venue || "TBD"],
-                      ...(r.venueType ? [["🏛️ Venue type", r.venueType]] : []),
-                    ].map(([label, val]) => (
-                      <div key={label}>
-                        <p style={{ margin:0, fontSize:10, fontWeight:700, color:C.lightGray, textTransform:"uppercase", letterSpacing:"0.04em" }}>{label}</p>
-                        <p style={{ margin:"1px 0 0", fontSize:12.5, fontWeight:600, color:C.black, wordBreak:"break-word" }}>{val}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* How to find / access the place */}
-                  {r.accessInstructions && (
-                    <div style={{ marginTop:8, background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:10, padding:"9px 12px" }}>
-                      <p style={{ margin:0, fontSize:10, fontWeight:800, color:"#92400E", textTransform:"uppercase", letterSpacing:"0.04em" }}>🗺️ How to find & access</p>
-                      <p style={{ margin:"2px 0 0", fontSize:12.5, color:"#78350F", lineHeight:1.5 }}>{r.accessInstructions}</p>
-                    </div>
-                  )}
-
-                  {/* Customer message */}
-                  {r.message && (
-                    <p style={{ margin:"8px 0 0", fontSize:12.5, color:"#444", fontStyle:"italic", lineHeight:1.5 }}>
-                      💬 “{r.message}”
-                    </p>
-                  )}
-
-                  {r.status === "pending" && (
-                    <div style={{ display:"flex", gap:8, marginTop:12 }}>
-                      <button onClick={()=>respond(r.id,"confirmed")} disabled={busyId===r.id} className="btn"
-                        style={{ flex:1, padding:"9px 0", borderRadius:9, background:C.green,
-                                 color:"#fff", border:"none", fontSize:12, fontWeight:700 }}>
-                        ✓ Accept booking
-                      </button>
-                      <button onClick={()=>respond(r.id,"declined")} disabled={busyId===r.id} className="btn"
-                        style={{ flex:1, padding:"9px 0", borderRadius:9, background:"#FEF2F2",
-                                 color:"#EF4444", border:"1px solid #FCA5A5", fontSize:12, fontWeight:700 }}>
-                        ✗ Decline
-                      </button>
-                    </div>
-                  )}
-                  {isConfirmedStatus(r.status) && (
-                    <div style={{ display:"flex", gap:8, marginTop:12 }}>
-                      <button onClick={()=>{
-                          const when = r.eventDate ? new Date(`${r.eventDate}T${r.startTime || "00:00"}:00`) : null;
-                          const hrs = when && !isNaN(when.getTime()) ? (when.getTime() - Date.now())/3600000 : null;
-                          const soon = hrs != null && hrs < 48;
-                          const msg = soon
-                            ? "Cancel this confirmed booking?\n\n⚠️ The event is less than 48 hours away. The customer will be refunded in full and we'll help them find a replacement. Late vendor cancellations affect your standing on PLUG."
-                            : "Cancel this confirmed booking?\n\nThe customer will be refunded in full and notified so they can rebook.";
-                          if (window.confirm(msg)) respond(r.id, "cancelled");
-                        }}
-                        disabled={busyId===r.id} className="btn"
-                        style={{ padding:"8px 16px", borderRadius:9, background:"#FEF2F2",
-                                 color:"#EF4444", border:"1px solid #FCA5A5", fontSize:12, fontWeight:700 }}>
-                        Cancel this booking
-                      </button>
-                    </div>
-                  )}
-                  {isConfirmedStatus(r.status) && isRealId(r.userId) && (
-                    <CustomerRating vendorId={user.id} customerId={r.userId}
-                      customerName={r.userName || "the customer"} bookingId={r.id} />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* MY LISTING */}
-          {tab === "listing" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>My listing</h3>
-                <button onClick={()=>setEditing(true)} className="btn"
-                  style={{ background:C.black, color:"#fff", border:"none", borderRadius:9,
-                           padding:"8px 14px", fontSize:12, fontWeight:700 }}>
-                  Edit business info
-                </button>
-              </div>
-              {(listing?.photos || []).length > 0 && (
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
-                  {listing.photos.slice(0,6).map((u,i)=>(
-                    <img key={i} src={u} alt={"Listing photo " + (i+1)}
-                      style={{ width:84, height:84, objectFit:"cover", borderRadius:9,
-                               border:`1px solid ${C.border}` }} />
-                  ))}
-                </div>
-              )}
-              {[["Business", listing?.business_name],
-                ["Service", listing?.service_type],
-                ["Description", listing?.description],
-                ["Starting price", listing?.price_value != null ? ("$" + listing.price_value) : "Contact for pricing"],
-                ["Capacity", listing?.capacity],
-                ["Years in business", listing?.years_in_biz],
-                ["Travel radius", listing?.travel_miles ? listing.travel_miles + " mi" : null],
-                ["Service areas", listing?.service_areas],
-                ["Availability", listing?.schedule],
-              ].map(([k,v]) => (
-                <div key={k} style={{ display:"flex", justifyContent:"space-between", gap:12,
-                                      padding:"8px 0", borderTop:`1px solid ${C.border}` }}>
-                  <span style={{ fontSize:12, color:C.midGray, fontWeight:600 }}>{k}</span>
-                  <span style={{ fontSize:12, fontWeight:700, textAlign:"right", maxWidth:320 }}>
-                    {v || <span style={{ color:"#DC2626" }}>Not set</span>}
-                  </span>
-                </div>
-              ))}
-
-              {/* All of this vendor's listings — add / edit each independently */}
-              <div style={{ marginTop:18, paddingTop:16, borderTop:`2px solid ${C.border}` }}>
-                <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>My listings</h3>
-                <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray, lineHeight:1.55 }}>
-                  Add as many listings as you offer — each shows up as its own listing to customers
-                  (e.g. a taco truck, a dessert truck, a DJ set). Give each one options or add-ons too.
-                </p>
-                <ServicesManager vendorId={user.id} />
-              </div>
-            </div>
-          )}
-
-          {/* ACCOUNT SETTINGS — the only place these two live, deliberately.
-              Neither runs straight off its button: each opens the dialog below,
-              which spells out what is about to happen and asks a second time. */}
-          {tab === "account" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Account settings</h3>
-              <p style={{ margin:"0 0 14px", fontSize:12, color:C.midGray }}>
-                Pause your business or close it down for good.
-              </p>
-
-              {acctErr && (
-                <p style={{ margin:"0 0 12px", fontSize:12, color:"#B91C1C", fontWeight:600 }}>{acctErr}</p>
-              )}
-
-              <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14 }}>
-                <p style={{ margin:0, fontSize:13, fontWeight:800 }}>Deactivate my account</p>
-                <p style={{ margin:"3px 0 9px", fontSize:11.5, color:C.midGray, lineHeight:1.6 }}>
-                  Your listings come off the marketplace and customers can no longer find or book you.
-                  Nothing is deleted — log back in any time to pick up where you left off.
-                </p>
-                <button type="button" onClick={() => { setAcctErr(""); setConfirmAction("deactivate"); }}
-                  disabled={acctBusy} className="btn"
-                  style={{ background:"#fff", color:C.black, border:`1.5px solid ${C.border}`,
-                           borderRadius:10, padding:"9px 16px", fontSize:12.5, fontWeight:700,
-                           cursor: acctBusy ? "default" : "pointer" }}>
-                  Deactivate account
-                </button>
-              </div>
-
-              <div style={{ borderTop:`1px solid ${C.border}`, marginTop:16, paddingTop:14 }}>
-                <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#B91C1C" }}>Delete my account</p>
-                <p style={{ margin:"3px 0 9px", fontSize:11.5, color:C.midGray, lineHeight:1.6 }}>
-                  Permanent. Your business profile, every listing, your photos and your booking history
-                  are removed and cannot be recovered.
-                </p>
-                <button type="button" onClick={() => { setAcctErr(""); setConfirmAction("delete"); }}
-                  disabled={acctBusy} className="btn"
-                  style={{ background:"#B91C1C", color:"#fff", border:"none",
-                           borderRadius:10, padding:"9px 16px", fontSize:12.5, fontWeight:700,
-                           cursor: acctBusy ? "default" : "pointer" }}>
-                  Delete account
-                </button>
-              </div>
-
-              {/* Confirmation. Deliberately not window.confirm: that cannot say
-                  what is about to happen in any detail and reads like a scam
-                  prompt. */}
-              {confirmAction && (() => {
-                const isDelete = confirmAction === "delete";
-                return (
-                  <div role="dialog" aria-modal="true"
-                    style={{ position:"fixed", inset:0, zIndex:900, background:"rgba(0,0,0,0.45)",
-                             display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
-                    onClick={() => !acctBusy && setConfirmAction(null)}>
-                    <div onClick={(e) => e.stopPropagation()}
-                      style={{ background:"#fff", borderRadius:16, maxWidth:430, width:"100%",
-                               padding:"20px 22px", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
-                      <p style={{ margin:0, fontSize:16, fontWeight:800,
-                                  color: isDelete ? "#B91C1C" : C.black }}>
-                        {isDelete ? "Delete your account for good?" : "Deactivate your account?"}
-                      </p>
-                      <p style={{ margin:"9px 0 0", fontSize:12.5, color:C.midGray, lineHeight:1.65 }}>
-                        {isDelete
-                          ? "This cannot be undone. Your business profile, all of your listings and photos, and your booking history will be permanently deleted. Customers with a confirmed booking will lose the record of it."
-                          : "Your listings will be hidden from the marketplace straight away and customers will not be able to book you. Your data is kept, and logging back in reactivates everything."}
-                      </p>
-                      <p style={{ margin:"12px 0 0", fontSize:12, color:C.midGray }}>
-                        You will be signed out {isDelete ? "immediately." : "and can return whenever you like."}
-                      </p>
-                      <div style={{ display:"flex", gap:8, marginTop:18, justifyContent:"flex-end" }}>
-                        <button type="button" onClick={() => setConfirmAction(null)} disabled={acctBusy}
-                          className="btn"
-                          style={{ background:"#F3F4F6", color:C.black, border:"none", borderRadius:10,
-                                   padding:"10px 16px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
-                          Keep my account
-                        </button>
-                        <button type="button" onClick={isDelete ? doDeleteAccount : doDeactivate}
-                          disabled={acctBusy} className="btn"
-                          style={{ background: isDelete ? "#B91C1C" : C.black, color:"#fff", border:"none",
-                                   borderRadius:10, padding:"10px 16px", fontSize:13, fontWeight:700,
-                                   opacity: acctBusy ? 0.6 : 1, cursor: acctBusy ? "default" : "pointer" }}>
-                          {acctBusy ? "Working…" : isDelete ? "Yes, delete everything" : "Yes, deactivate"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* REVIEWS RECEIVED */}
-          {tab === "reviews" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Reviews you have received</h3>
-              <p style={{ margin:"0 0 14px", fontSize:12, color:C.midGray }}>
-                Written by customers after a confirmed booking. You can reply to any of them from your
-                public profile page.
-              </p>
-
-              {revs.length === 0 ? (
-                <p style={{ fontSize:13, color:C.midGray, margin:0 }}>
-                  No reviews yet. They appear here once a customer reviews a completed booking.
-                </p>
-              ) : (
-                <>
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14,
-                                paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
-                    <span style={{ fontSize:30, fontWeight:800, fontFamily:"'Playfair Display', serif" }}>
-                      {(revs.reduce((a,r)=>a+(Number(r.rating)||0),0) / revs.length).toFixed(1)}
-                    </span>
-                    <div>
-                      <Stars r={Math.round(revs.reduce((a,r)=>a+(Number(r.rating)||0),0) / revs.length)} size={14} />
-                      <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray }}>
-                        {revs.length} review{revs.length===1?"":"s"}
-                      </p>
-                    </div>
-                  </div>
-
-                  {revs.map(r => (
-                    <div key={r.id} style={{ borderTop:`1px solid ${C.border}`, padding:"12px 0" }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", gap:10, alignItems:"center" }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <Stars r={r.rating} size={13} />
-                          <span style={{ fontSize:12, fontWeight:700 }}>
-                            {r.authorName || "Verified customer"}
-                          </span>
-                        </div>
-                        <span style={{ fontSize:10.5, color:C.lightGray }}>
-                          {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ""}
-                        </span>
-                      </div>
-                      {r.body && (
-                        <p style={{ margin:"6px 0 0", fontSize:13, color:C.midGray, lineHeight:1.65 }}>{r.body}</p>
-                      )}
-                      {r.reply && (
-                        <div style={{ marginTop:8, marginLeft:12, paddingLeft:12,
-                                      borderLeft:`2px solid ${C.border}` }}>
-                          <p style={{ margin:0, fontSize:10.5, fontWeight:800, color:C.orange }}>Your reply</p>
-                          <p style={{ margin:"2px 0 0", fontSize:12.5, color:C.midGray, lineHeight:1.6 }}>{r.reply}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* AVAILABILITY — dates only. The weekly pattern (which days and what
-              times a given service runs) lives on each listing, because a venue
-              can be all day while a DJ listing is evenings only. This calendar
-              is the one that applies to everything you offer. */}
-          {tab === "calendar" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>Days off &amp; booked dates</h3>
-              <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray }}>
-                Mark the dates you're unavailable. <strong>This applies to every listing you have.</strong>{" "}
-                The days of the week and times each service runs are set on the listing itself, under
-                “When this service is offered”. Customers see this before requesting — but you still
-                approve every booking.
-              </p>
-              <AvailabilityCalendar vendorId={user.id} />
-            </div>
-          )}
-
-          {/* NOTIFICATIONS */}
-          {tab === "notifs" && (
-            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>Notifications</h3>
-                {unread > 0 && (
-                  <button onClick={async()=>{ await markNotifsRead(user.id); reload(); }} className="btn"
-                    style={{ border:`1px solid ${C.border}`, background:"#fff", borderRadius:9,
-                             padding:"6px 12px", fontSize:11, fontWeight:700, color:C.midGray }}>
-                    Mark all read
-                  </button>
-                )}
-              </div>
-              {notifs.length === 0 ? (
-                <p style={{ fontSize:13, color:C.midGray, margin:0 }}>No notifications yet.</p>
-              ) : notifs.map((n,i) => (
-                <div key={n.id || i} style={{ borderTop:`1px solid ${C.border}`, padding:"10px 0",
-                                              background: n.read ? "transparent" : "#F8FAFF" }}>
-                  <p style={{ margin:0, fontSize:13, fontWeight: n.read ? 500 : 700 }}>
-                    {n.title || n.message || "Update"}
-                  </p>
-                  {n.body && <p style={{ margin:"2px 0 0", fontSize:12, color:C.midGray }}>{n.body}</p>}
-                  {n.created_at && (
-                    <p style={{ margin:"3px 0 0", fontSize:10, color:C.lightGray }}>
-                      {new Date(n.created_at).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-        )}
-      </div>
-
-      {editing && (
-        <VendorListingEditor user={user} onClose={()=>setEditing(false)} onSaved={reload} />
-      )}
-    </div>
-  );
-}
-
-/* Persist a piece of state to the browser so a page refresh doesn't wipe it
-   (cart contents, in-progress booking details). Falls back gracefully if
-   localStorage is unavailable. */
+/* VendorInquiries moved to src/dashboards/VendorDashboard.jsx (23 Sep 2026) - loaded on demand. */
+/* VendorDashboard moved to src/dashboards/VendorDashboard.jsx (23 Sep 2026) - loaded on demand. */
 function usePersistentState(key, initial) {
   const [val, setVal] = useState(() => {
     try {
@@ -12531,6 +10488,35 @@ function usePersistentState(key, initial) {
     try { if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify(val)); } catch {}
   }, [key, val]);
   return [val, setVal];
+}
+
+/* ── Loaded on demand (checklist item 6, part two) ──────────────────────────
+   The admin panel and the vendor dashboard are about 2,050 lines that almost
+   nobody downloads on purpose. A customer browsing food trucks has no use for
+   either, and until now shipped both on first paint.
+
+   THE IMPORT POINTS BACK AT THIS FILE, which looks circular and is. The two
+   modules import C, sb and the data helpers from here; this file reaches them
+   only through import(), which runs after this module has finished evaluating.
+   So nothing is read before it exists.
+
+   The alternative - hoisting all 53 shared symbols into a third module - moves
+   another ~1,600 lines and produces exactly the same bundles, because shared
+   code stays in the main chunk either way. It is the tidier design and worth
+   doing when this file is split properly; it is not worth the extra risk in a
+   change whose entire value is that the moved code is untouched.
+
+   Suspense fallback is deliberately plain. Both are behind a sign-in, on a fast
+   path, and a skeleton that flashes for 80ms is worse than a line of text. */
+const AdminPanel      = lazy(() => import("./dashboards/AdminPanel.jsx"));
+const VendorDashboard = lazy(() => import("./dashboards/VendorDashboard.jsx"));
+
+function DashboardLoading({ label }) {
+  return (
+    <div style={{ padding:"64px 20px", textAlign:"center", color:C.midGray, fontSize:14 }}>
+      Loading {label}...
+    </div>
+  );
 }
 
 export default function PlugApp() {
@@ -12858,21 +10844,26 @@ export default function PlugApp() {
   }, []);
   useEffect(() => { refreshVendors(); }, [refreshVendors]);
 
-  /* After a refresh, re-open whichever listing the person was viewing — resolved
-     from freshly loaded cards so the data is never stale. This runs ONCE on
-     first load; otherwise it would immediately re-open a listing the person
-     just closed (e.g. by clicking the logo to go home). */
-  const restoredOnce = useRef(false);
-  useEffect(() => {
-    /* A vendor URL is an explicit request and beats whatever this browser had
-       open last time. Without this, following a shared link could silently
-       open a different vendor. */
-    if (BOOT_ROUTE.kind === "vendor") return;
-    if (restoredOnce.current || vendorPage || !openCardId || !dbVendors.length) return;
-    restoredOnce.current = true;
-    const found = dbVendors.find(v => v.id === openCardId);
-    if (found) setVendorPage(found);
-  }, [dbVendors, openCardId, vendorPage]);
+  /* ── Reopening the last listing from localStorage is RETIRED ────────────────
+     This predates routing, when a refresh had no URL to tell it what had been
+     open and remembering was the only way not to lose the person's place.
+
+     Now it actively fights the URL, and it is the same bug found twice already
+     today in a third disguise: a remembered value outranking an explicit
+     request. Asking for /c/food opened whatever listing you last viewed and
+     rewrote the address bar to that vendor. Measured on production before
+     changing anything — /c/food landed on /vendor/svc_35e85222..., which means
+     every category link shared with a returning visitor went somewhere else.
+     The guard here only excused BOOT_ROUTE.kind === "vendor", so categories,
+     the builder and the homepage all got hijacked.
+
+     No replacement is needed. Every view has a URL, and the sync effect below
+     keeps the address bar current, so a refresh on a listing already reloads
+     that listing's URL and BOOT_ROUTE opens it. The stored value was doing a
+     job the URL now does properly.
+
+     openCardId is still written, so nothing that reads it breaks; it simply no
+     longer decides what you see. */
 
   /* ── The view is restored from the URL, once, on boot ───────────────────────
      Deliberately placed AFTER the dbVendors declaration above. The first
@@ -13340,7 +11331,11 @@ export default function PlugApp() {
      marketplace. Both surfaces share the same Supabase data, so a request a
      customer sends here shows up there, and vice versa. */
   if (user && user.type === "vendor") {
-    return <VendorDashboard user={user} onLogout={handleLogout} />;
+    return (
+      <Suspense fallback={<DashboardLoading label="your dashboard" />}>
+        <VendorDashboard user={user} onLogout={handleLogout} />
+      </Suspense>
+    );
   }
 
   const recSubs    = RECS[wizAns.eventType] || [];
@@ -13357,7 +11352,9 @@ export default function PlugApp() {
 
       {/* ── ADMIN PANEL ─────────────────────────────────────────────────────── */}
       {adminPanelOpen && user?.type === "admin" && (
-        <AdminPanel user={user} onClose={()=>setAdminPanelOpen(false)} />
+        <Suspense fallback={<DashboardLoading label="the admin panel" />}>
+          <AdminPanel user={user} onClose={()=>setAdminPanelOpen(false)} />
+        </Suspense>
       )}
 
       {authModal && <AuthModal onClose={()=>setAuthModal(false)} onAuth={u=>{setUser(u);setAuthModal(false);}} />}
