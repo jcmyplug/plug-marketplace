@@ -3893,8 +3893,31 @@ function AuthModal({ onClose, onAuth }) {
         await recordAttempt(form.email, true);
         await saveSession(data);
         const u = await getCurrentUser();
-        if (u) { onAuth(u); onClose(); }
-        else { setErr("Login succeeded but profile not found. Please contact support."); }
+        if (!u) { setErr("Login succeeded but profile not found. Please contact support."); setLoading(false); return; }
+
+        /* ── MAINTENANCE MODE ──
+           Checked after the password, not before, because "are you an admin?"
+           is a question only an authenticated session can answer — and asking
+           it before would mean telling an anonymous caller which addresses
+           belong to admins.
+
+           The credentials were correct, so this is not a login failure and is
+           not counted as one against the rate limit. The session is thrown
+           away immediately: a non-admin who got this far holds a token the
+           `authenticated` role could still use against the REST API directly,
+           so leaving it in their browser would make this a curtain rather
+           than a door. */
+        if (u.type !== "admin") {
+          const status = await getSiteStatus();
+          if (status.private) {
+            await clearSession();
+            setErr("PLUG is down for maintenance right now. Please try again later.");
+            setLoading(false);
+            return;
+          }
+        }
+
+        onAuth(u); onClose();
         return;
       }
 
@@ -3942,6 +3965,18 @@ function AuthModal({ onClose, onAuth }) {
       /* Started and completed are separate events on purpose: the gap between
          them is the signup drop-off, which is invisible if you only record
          success. No email, no name — just the role and the moment. */
+      /* No new accounts while the site is off. A BEFORE INSERT trigger on
+         auth.users refuses this regardless of what the browser does — this
+         check exists only so the person reads a sentence instead of
+         "signups_disabled_maintenance". */
+      {
+        const status = await getSiteStatus();
+        if (status.private) {
+          setErr("PLUG is down for maintenance right now. Please try again later.");
+          setLoading(false); return;
+        }
+      }
+
       track("signup_started", { role });
       const { data: authData, error: signUpError } = await sb.signUp(
         form.email, form.password, meta, tsToken || null);
@@ -10678,6 +10713,17 @@ export default function PlugApp() {
      the site is off; the cost of being pessimistic is a slower site always. */
   const [sitePrivate, setSitePrivate] = useState(false);
   useEffect(() => { getSiteStatus().then(s => setSitePrivate(s.private)); }, []);
+
+  /* Turning the site off also ends everyone else's session. Without this, a
+     customer or vendor who was already signed in when the switch was flipped
+     keeps a valid token in their browser — the maintenance page would hide
+     the site from them while their token still answered the REST API, which
+     is theatre rather than a closed door. Admins are the exception, since
+     they need to be in here to turn it back on. */
+  useEffect(() => {
+    if (!sitePrivate || !user || user.type === "admin") return;
+    clearSession().then(() => setUser(null));
+  }, [sitePrivate, user]);
 
   /* Market / location */
   const [market, setMarket] = useState(DEFAULT_MARKET);
