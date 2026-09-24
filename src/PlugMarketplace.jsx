@@ -9448,8 +9448,13 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
                        color: inCart ? C.midGray : "#fff",
                        fontSize:14, fontWeight:800, marginBottom:8,
                        boxShadow: inCart ? "none" : C.shadowButton }}>
-              {(!user || user.type === "guest")
-                ? "🔒 Log in to book"
+              {/* A guest is NOT signed out - the header says "Guest" and offers
+                  "Log out" - so telling them to log in is a contradiction they
+                  cannot act on. They do not need to log in, they need an
+                  account. The helper line below already said so; the button
+                  disagreed with it. */}
+              {!user ? "🔒 Log in to book"
+                : user.type === "guest" ? "🔒 Sign up to book"
                 : inCart ? "✓ Added — set date & details in cart" : disp.instant ? "⚡ Book now" : "Start booking request"}
             </button>
             <p style={{ fontSize:11, color:C.midGray, textAlign:"center", margin:"0 0 4px", lineHeight:1.5 }}>
@@ -9493,7 +9498,9 @@ function VendorProfile({ vendor, user, reviews, onBack, onAddReview, onVendorRep
                     }} className="btn" disabled={inquiryBusy}
                     style={{ width:"100%", padding:"10px 0", borderRadius:10, background:C.black, color:"#fff",
                              border:"none", fontSize:13, fontWeight:700, marginTop:8 }}>
-                    {(!user || user.type === "guest") ? "🔒 Log in to inquire" : inquiryBusy ? "Sending…" : "Send inquiry"}
+                    {!user ? "🔒 Log in to inquire"
+                      : user.type === "guest" ? "🔒 Sign up to inquire"
+                      : inquiryBusy ? "Sending…" : "Send inquiry"}
                   </button>
                 </>
               )}
