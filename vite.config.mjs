@@ -34,6 +34,11 @@ export default defineConfig(function (config) {
     "REACT_APP_SUPABASE_ANON_KEY",
     "REACT_APP_GOOGLE_MAPS_KEY",
     "REACT_APP_ADMIN_SETUP_KEY",
+    /* Cloudflare Turnstile site key. Public by design — it identifies the
+       widget, it does not authorise anything. The secret key never comes near
+       this bundle: it lives in Supabase Auth, which is what actually verifies
+       the token. Empty until set, and the app treats empty as "not enabled". */
+    "REACT_APP_TURNSTILE_SITE_KEY",
   ];
 
   /* Every reference has to be defined. Vite does not ship a process shim, so
