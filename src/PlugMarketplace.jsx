@@ -10837,21 +10837,26 @@ export default function PlugApp() {
   }, []);
   useEffect(() => { refreshVendors(); }, [refreshVendors]);
 
-  /* After a refresh, re-open whichever listing the person was viewing — resolved
-     from freshly loaded cards so the data is never stale. This runs ONCE on
-     first load; otherwise it would immediately re-open a listing the person
-     just closed (e.g. by clicking the logo to go home). */
-  const restoredOnce = useRef(false);
-  useEffect(() => {
-    /* A vendor URL is an explicit request and beats whatever this browser had
-       open last time. Without this, following a shared link could silently
-       open a different vendor. */
-    if (BOOT_ROUTE.kind === "vendor") return;
-    if (restoredOnce.current || vendorPage || !openCardId || !dbVendors.length) return;
-    restoredOnce.current = true;
-    const found = dbVendors.find(v => v.id === openCardId);
-    if (found) setVendorPage(found);
-  }, [dbVendors, openCardId, vendorPage]);
+  /* ── Reopening the last listing from localStorage is RETIRED ────────────────
+     This predates routing, when a refresh had no URL to tell it what had been
+     open and remembering was the only way not to lose the person's place.
+
+     Now it actively fights the URL, and it is the same bug found twice already
+     today in a third disguise: a remembered value outranking an explicit
+     request. Asking for /c/food opened whatever listing you last viewed and
+     rewrote the address bar to that vendor. Measured on production before
+     changing anything — /c/food landed on /vendor/svc_35e85222..., which means
+     every category link shared with a returning visitor went somewhere else.
+     The guard here only excused BOOT_ROUTE.kind === "vendor", so categories,
+     the builder and the homepage all got hijacked.
+
+     No replacement is needed. Every view has a URL, and the sync effect below
+     keeps the address bar current, so a refresh on a listing already reloads
+     that listing's URL and BOOT_ROUTE opens it. The stored value was doing a
+     job the URL now does properly.
+
+     openCardId is still written, so nothing that reads it breaks; it simply no
+     longer decides what you see. */
 
   /* ── The view is restored from the URL, once, on boot ───────────────────────
      Deliberately placed AFTER the dbVendors declaration above. The first
