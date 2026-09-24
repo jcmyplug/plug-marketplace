@@ -242,11 +242,12 @@ const SECURITY_HEADERS = Object.freeze({
   meta: {
     csp: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' https://images.unsplash.com https://cdn.jsdelivr.net https://*.supabase.co https://maps.gstatic.com https://*.googleapis.com data: blob:",
-      "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.resend.com https://photon.komoot.io https://nominatim.openstreetmap.org https://maps.googleapis.com",
+      "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.resend.com https://photon.komoot.io https://nominatim.openstreetmap.org https://maps.googleapis.com https://challenges.cloudflare.com",
+      "frame-src https://challenges.cloudflare.com",
       "base-uri 'self'",
       "form-action 'self'",
     ].join("; "),
@@ -258,11 +259,12 @@ const SECURITY_HEADERS = Object.freeze({
   server: {
     "Content-Security-Policy": [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' https://images.unsplash.com https://cdn.jsdelivr.net https://*.supabase.co https://maps.gstatic.com https://*.googleapis.com data: blob:",
-      "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.resend.com https://photon.komoot.io https://nominatim.openstreetmap.org https://maps.googleapis.com",
+      "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.resend.com https://photon.komoot.io https://nominatim.openstreetmap.org https://maps.googleapis.com https://challenges.cloudflare.com",
+      "frame-src https://challenges.cloudflare.com",
       "frame-ancestors 'self' https://claude.ai https://www.claude.ai",
       "base-uri 'self'",
       "form-action 'self'",
@@ -1265,6 +1267,19 @@ const SUPABASE_URL  = process.env.REACT_APP_SUPABASE_URL
 const SUPABASE_ANON = process.env.REACT_APP_SUPABASE_ANON_KEY
   || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ0bXFnaHVkZmFrcGJicGxycWhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjA1NTgsImV4cCI6MjA5NDczNjU1OH0.t3GgjjKy--BPMJ7Z5wPWB1UamG71F6FGzR_N2cfJpWw";
 
+/* ── Cloudflare Turnstile ────────────────────────────────────────────────────
+   Empty until REACT_APP_TURNSTILE_SITE_KEY is set in Vercel, and everything
+   below is written so that emptiness is a working state, not a broken one:
+   no key means no widget, no token, and the existing arithmetic question
+   carries on exactly as before.
+
+   That ordering is deliberate. A widget rendered without a key shows a broken
+   box, and a token sent before Supabase has the secret is ignored — but turning
+   on Supabase's CAPTCHA protection while the app sends no token rejects EVERY
+   signup. So: this code ships first and changes nothing, then you add the site
+   key here and the secret key in Supabase. Neither step alone can break signup. */
+const TURNSTILE_SITE_KEY = process.env.REACT_APP_TURNSTILE_SITE_KEY || "";
+
 /* Detect if running in Claude artifact sandbox (no external fetch allowed) */
 const IS_PREVIEW = (() => {
   try {
@@ -1378,12 +1393,20 @@ const sb = (() => {
   }
 
   /* Auth helpers */
-  async function signUp(email, password, meta = {}) {
+  async function signUp(email, password, meta = {}, captchaToken = null) {
     if (IS_PREVIEW) return previewSignUp(email, password, meta);
     try {
+      /* gotrue_meta_security is where GoTrue expects the CAPTCHA token. It is
+         verified by Supabase's auth server against Cloudflare, not by us — the
+         whole point is that it holds for anyone calling this endpoint, whether
+         or not they went anywhere near our form. Omitted entirely when there is
+         no token, because sending an empty one is a failed verification rather
+         than an absent one. */
+      const body = { email, password, data: meta };
+      if (captchaToken) body.gotrue_meta_security = { captcha_token: captchaToken };
       const res = await fetch(SUPABASE_URL + "/auth/v1/signup", {
         method: "POST", headers,
-        body: JSON.stringify({ email, password, data: meta }),
+        body: JSON.stringify(body),
       });
       const d = await res.json();
       return { data: d, error: d.error || null };
@@ -3561,6 +3584,71 @@ function InstBadge() {
   );
 }
 
+/* ── Turnstile widget ────────────────────────────────────────────────────────
+   Renders nothing at all when no site key is configured, so the caller can
+   include it unconditionally.
+
+   The script is loaded once and shared. Loading it per-mount would re-register
+   the global callback and leave orphaned widgets behind each time the signup
+   modal is reopened, which is how these integrations usually start leaking. */
+let _turnstilePromise = null;
+function loadTurnstile() {
+  if (_turnstilePromise) return _turnstilePromise;
+  _turnstilePromise = new Promise((resolve, reject) => {
+    if (window.turnstile) return resolve(window.turnstile);
+    const s = document.createElement("script");
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    s.async = true;
+    s.defer = true;
+    s.onload = () => resolve(window.turnstile);
+    s.onerror = () => reject(new Error("Turnstile failed to load"));
+    document.head.appendChild(s);
+  });
+  return _turnstilePromise;
+}
+
+function Turnstile({ onToken }) {
+  const boxRef  = useRef(null);
+  const idRef   = useRef(null);
+  const cbRef   = useRef(onToken);
+  cbRef.current = onToken;           /* so the widget never holds a stale setter */
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return;
+    let dead = false;
+    loadTurnstile().then(ts => {
+      if (dead || !boxRef.current || !ts) return;
+      idRef.current = ts.render(boxRef.current, {
+        sitekey:  TURNSTILE_SITE_KEY,
+        callback: token => cbRef.current(token),
+        /* A token is single-use and expires. Clearing it on expiry means the
+           form asks again rather than submitting something already spent. */
+        "expired-callback": () => cbRef.current(""),
+        "error-callback":   () => { setFailed(true); cbRef.current(""); },
+      });
+    }).catch(() => setFailed(true));
+    return () => {
+      dead = true;
+      try { if (idRef.current && window.turnstile) window.turnstile.remove(idRef.current); }
+      catch { /* already gone */ }
+    };
+  }, []);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+  return (
+    <div>
+      <div ref={boxRef} />
+      {failed && (
+        <p style={{ margin:"8px 0 0", fontSize:11, color:C.midGray }}>
+          The human check could not load. Check your connection or disable a
+          content blocker, then reopen this form.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Tag({ children }) {
   return (
     <span style={{ background:"#F3F4F6", color:"#374151", fontSize:10, fontWeight:500,
@@ -3577,6 +3665,7 @@ function AuthModal({ onClose, onAuth }) {
   const [err,          setErr]         = useState("");
   const [created,      setCreated]     = useState(null);
   const [captcha,      setCaptcha]     = useState(() => genCaptcha());
+  const [tsToken,      setTsToken]     = useState("");   /* Turnstile, when enabled */
   const [tosAccepted,  setTosAccepted] = useState(false);
   const [forgotMsg,    setForgotMsg]   = useState("");  // password-reset confirmation
   const [mailError,    setMailError]   = useState(false); // verification email failed to send
@@ -3710,8 +3799,14 @@ function AuthModal({ onClose, onAuth }) {
          Demanding a photo here would be unsatisfiable: there is no picker any
          more, because there is no session to upload with until the vendor has
          confirmed their email. */
-      if (parseInt(form.captchaAnswer) !== captcha.answer)
-        { setErr(`Verification failed — answer: ${form.captchaAnswer || "(blank)"}`); return false; }
+      /* Whichever check is actually in play. With Turnstile configured the
+         arithmetic question is not rendered, so validating it would block on a
+         field nobody was shown. */
+      if (TURNSTILE_SITE_KEY) {
+        if (!tsToken) { setErr("Please complete the human check above."); return false; }
+      } else if (parseInt(form.captchaAnswer) !== captcha.answer) {
+        setErr(`Verification failed — answer: ${form.captchaAnswer || "(blank)"}`); return false;
+      }
       if (!tosAccepted) { setErr("Please accept PLUG's terms to continue."); return false; }
       return true;
     }
@@ -3821,9 +3916,17 @@ function AuthModal({ onClose, onAuth }) {
          them is the signup drop-off, which is invisible if you only record
          success. No email, no name — just the role and the moment. */
       track("signup_started", { role });
-      const { data: authData, error: signUpError } = await sb.signUp(form.email, form.password, meta);
+      const { data: authData, error: signUpError } = await sb.signUp(
+        form.email, form.password, meta, tsToken || null);
       if (signUpError || !authData?.user) {
         setErr(signUpError?.message || "Signup failed. Please try again.");
+        /* A Turnstile token is single-use. Whatever the failure was, the old
+           token is spent, so reset the widget rather than leaving the customer
+           pressing a button that can no longer succeed. */
+        if (TURNSTILE_SITE_KEY) {
+          setTsToken("");
+          try { window.turnstile && window.turnstile.reset(); } catch { /* not mounted */ }
+        }
         setLoading(false); return;
       }
       track("signup_completed", { role });
@@ -4398,14 +4501,23 @@ function AuthModal({ onClose, onAuth }) {
           <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:700, color:C.black }}>
             🤖 Prove you're human
           </p>
-          <p style={{ margin:"0 0 10px", fontSize:13, color:C.midGray }}>
-            What is <strong>{captcha.q}</strong>?
-          </p>
-          <input type="number" placeholder="Your answer" value={form.captchaAnswer}
-            onChange={e=>upd("captchaAnswer",e.target.value)}
-            style={{ width:"100%", height:44, padding:"0 14px", border:`1px solid ${C.border}`,
-                     borderRadius:10, fontSize:16, fontWeight:700, color:C.black,
-                     background:"#fff", textAlign:"center" }} />
+          {TURNSTILE_SITE_KEY ? (
+            /* Cloudflare verifies this, and Supabase Auth checks the token
+               server-side, so it cannot be skipped by anyone scripting the
+               signup endpoint directly. Most real visitors never see a puzzle. */
+            <Turnstile onToken={setTsToken} />
+          ) : (
+            <>
+              <p style={{ margin:"0 0 10px", fontSize:13, color:C.midGray }}>
+                What is <strong>{captcha.q}</strong>?
+              </p>
+              <input type="number" placeholder="Your answer" value={form.captchaAnswer}
+                onChange={e=>upd("captchaAnswer",e.target.value)}
+                style={{ width:"100%", height:44, padding:"0 14px", border:`1px solid ${C.border}`,
+                         borderRadius:10, fontSize:16, fontWeight:700, color:C.black,
+                         background:"#fff", textAlign:"center" }} />
+            </>
+          )}
         </div>
         {legalView && <InfoPageModal page={legalView} onClose={()=>setLegalView(null)} />}
 
