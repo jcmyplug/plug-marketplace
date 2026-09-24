@@ -12,6 +12,7 @@ import {
   MessagesPanel,
   RLS,
   SECURITY_HEADERS,
+  SiteSwitch,
   adminDeleteAccount,
   adminListAccounts,
   adminSendMessage,
@@ -423,6 +424,12 @@ function AdminPanel({ user, onClose }) {
 
         {/* Body */}
         <div style={{ flex:1, overflowY:"auto", padding:"20px 26px" }}>
+
+          {/* Whether the site is open to the public, above the tabs rather
+              than inside one of them: it is the only control here that
+              affects every visitor, and you should not have to remember
+              which tab it lives on to find out the site is off. */}
+          <SiteSwitch />
 
           {/* ── VENDOR APPLICATIONS ── */}
           {atab === "accounts" && <AdminAccounts adminId={user.id} />}
