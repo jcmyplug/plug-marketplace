@@ -378,6 +378,7 @@ function AdminPanel({ user, onClose }) {
     ["cors",   "🌐 CORS",   0],
     ["rls",    "🔒 RLS",    0],
     ["sec",    "🛡️ Headers",0],
+    ["settings","⚙️ Settings",0],
     ["acct",   "👤 Account",0],
   ];
 
@@ -424,12 +425,6 @@ function AdminPanel({ user, onClose }) {
 
         {/* Body */}
         <div style={{ flex:1, overflowY:"auto", padding:"20px 26px" }}>
-
-          {/* Whether the site is open to the public, above the tabs rather
-              than inside one of them: it is the only control here that
-              affects every visitor, and you should not have to remember
-              which tab it lives on to find out the site is off. */}
-          <SiteSwitch />
 
           {/* ── VENDOR APPLICATIONS ── */}
           {atab === "accounts" && <AdminAccounts adminId={user.id} />}
@@ -624,6 +619,21 @@ function AdminPanel({ user, onClose }) {
                 );
               })}
               <SecurityConfigPanel />
+            </div>
+          )}
+
+          {/* ── SETTINGS ──
+              Its own tab rather than sitting above all of them. Repeating a
+              control on every tab is a way of saying it belongs to none of
+              them; this one belongs here. It is also not in Account, which is
+              about this admin's own login, not about the site. */}
+          {atab === "settings" && (
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                <span style={{ fontSize:16 }}>⚙️</span>
+                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>Site Settings</h3>
+              </div>
+              <SiteSwitch />
             </div>
           )}
 
