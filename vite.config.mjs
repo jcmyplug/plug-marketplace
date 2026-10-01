@@ -33,7 +33,8 @@ export default defineConfig(function (config) {
     "REACT_APP_SUPABASE_URL",
     "REACT_APP_SUPABASE_ANON_KEY",
     "REACT_APP_GOOGLE_MAPS_KEY",
-    "REACT_APP_ADMIN_SETUP_KEY",
+    /* REACT_APP_ADMIN_SETUP_KEY removed 30 Sep 2026: anything listed here is
+       baked into public JavaScript, so it could never have been a secret. */
     /* Cloudflare Turnstile site key. Public by design — it identifies the
        widget, it does not authorise anything. The secret key never comes near
        this bundle: it lives in Supabase Auth, which is what actually verifies
