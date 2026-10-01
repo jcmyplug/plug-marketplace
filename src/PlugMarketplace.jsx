@@ -3851,7 +3851,7 @@ function AuthModal({ onClose, onAuth }) {
     setLegalRead(r => (r[key] ? r : { ...r, [key]: true }));
   }
 
-  const totalSteps = role === "vendor" ? 4 : 2;
+  const totalSteps = 2;   // hosts and vendors alike — see the note in renderStep
 
   /* Load rate-limit state whenever email changes */
   useEffect(() => {
@@ -3865,6 +3865,7 @@ function AuthModal({ onClose, onAuth }) {
     if (step === 1) {
       if (!form.firstName.trim()) { setErr("Please enter your first name."); return false; }
       if (!form.lastName.trim())  { setErr("Please enter your last name.");  return false; }
+      if (role === "vendor" && !form.business.trim()) { setErr("Please enter your business name."); return false; }
       if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
         { setErr("Please enter a valid email address."); return false; }
       if (!form.password) { setErr("Please enter a password."); return false; }
@@ -3892,26 +3893,7 @@ function AuthModal({ onClose, onAuth }) {
       }
       return true;
     }
-    if (step === 2 && role === "vendor") {
-      if (!form.bizLegal)   { setErr("Business legal name is required."); return false; }
-      if (!form.bizLicense) { setErr("Business license number is required."); return false; }
-      if (!form.yearsInBiz) { setErr("Years in business is required."); return false; }
-      if (!form.bizPhone)   { setErr("Business phone number is required."); return false; }
-      return true;
-    }
-    if (step === 3 && role === "vendor") {
-      if (!form.bizAddress) { setErr("Business address is required."); return false; }
-      if (!form.bizCity)    { setErr("City is required."); return false; }
-      if (!form.bizZip)     { setErr("ZIP code is required."); return false; }
-      if (!form.serviceCities.length) { setErr("Please select at least one service area."); return false; }
-      if (!form.availDays.length)   { setErr("Please select which days you're willing to work."); return false; }
-      if (!form.availBlocks.length) { setErr("Please select the hours you're willing to work."); return false; }
-      if (!form.category)   { setErr("Please choose your service category."); return false; }
-      if (!form.capacity)   { setErr("Please choose your guest capacity."); return false; }
-      if (form.category !== "places" && !form.travelMiles){ setErr("Please choose your travel radius."); return false; }
-      return true;
-    }
-    if ((step === 4 && role === "vendor") || (step === 2 && role !== "vendor")) {
+    if (step === 2) {
       /* The photo requirement moved to the dashboard along with the upload.
          Demanding a photo here would be unsatisfiable: there is no picker any
          more, because there is no session to upload with until the vendor has
@@ -4042,7 +4024,7 @@ function AuthModal({ onClose, onAuth }) {
         biz_zip:          form.bizZip        || null,
         service_areas:    form.serviceAreas  || null,
         schedule:         form.schedule      || null,
-        category:         form.category      || null,
+        category:         role === "vendor" ? null : (form.category || null),   // listings carry the category now
         capacity:         form.capacity      || null,
         travel_miles:     form.travelMiles   || null,
         /* These two used to be written by the client after signup, with the
@@ -4452,220 +4434,14 @@ function AuthModal({ onClose, onAuth }) {
       </div>
     );
 
-    /* STEP 2: Business info (vendor) */
-    if (step === 2 && role === "vendor") return (
-      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        <div style={{ marginBottom:4 }}>
-          <p style={{ margin:0, fontSize:13.5, fontWeight:800, color:C.black }}>Your business</p>
-          <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-            Tell us who you are as a company. This must match your official registration —
-            it's what we verify. You'll add the services you sell later.
-          </p>
-        </div>
-        {inp("Business legal name (as registered)", "bizLegal", "text", true)}
-        {sel("bizType", [["LLC","LLC"],["S-Corp","S-Corp"],["C-Corp","C-Corp"],
-          ["Sole Proprietor","Sole Proprietor"],["Partnership","Partnership"],
-          ["Non-Profit","Non-Profit"],["Other","Other"]])}
-        <div style={{ display:"flex", gap:8 }}>
-          {inp("Business license #", "bizLicense", "text", true)}
-          {inp("EIN / Tax ID (optional)", "ein")}
-        </div>
-        <div style={{ display:"flex", gap:8 }}>
-          {inp("Years in business", "yearsInBiz", "number", true)}
-          {inp("Business phone", "bizPhone", "tel", true)}
-        </div>
-        {inp("Website (optional)", "bizWebsite", "url")}
-        {inp("Owner / Managing members (names & roles)", "managingMembers")}
-        <p style={{ margin:0, fontSize:10, color:C.lightGray, lineHeight:1.5 }}>
-          Example: "Jane Smith — Owner / Maria Torres — Operations Manager"
-        </p>
-      </div>
-    );
+    /* Vendor steps 2 and 3 (business info, location & service) were deleted
+       on 30 Sep 2026. Vendors now sign up exactly like hosts plus a business
+       name, and fill in their business details and listings from the
+       dashboard after confirming their email. Asking all of it up front made
+       signup four screens long and asked for the same things a listing asks
+       for again later, which is what confused vendors. */
 
-    /* STEP 3: Location + document upload (vendor) */
-    if (step === 3 && role === "vendor") return (
-      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        <div style={{ marginBottom:4 }}>
-          <p style={{ margin:0, fontSize:13.5, fontWeight:800, color:C.black }}>Where you're based</p>
-          <p style={{ margin:"2px 0 0", fontSize:11, color:C.midGray, lineHeight:1.5 }}>
-            Your business address and the areas you cover. You can set a different
-            travel radius per listing afterwards.
-          </p>
-        </div>
-        {inp("Business street address", "bizAddress", "text", true)}
-        <div style={{ display:"flex", gap:6 }}>
-          {inp("City", "bizCity", "text", true)}
-          <input type="text" placeholder="State" value={form.bizState}
-            onChange={e=>upd("bizState",e.target.value)}
-            style={{ width:60, height:44, padding:"0 10px", border:`1px solid ${C.border}`,
-                     borderRadius:10, fontSize:14, color:C.black, background:"#fff" }} />
-          {inp("ZIP", "bizZip", "text", true)}
-        </div>
-        {/* Service areas — pick from Texas cities (no free typing) */}
-        <div>
-          <p style={{ margin:"0 0 5px", fontSize:12, fontWeight:700, color:C.black }}>
-            Service areas * <span style={{ color:C.lightGray, fontWeight:500 }}>— cities you cover</span>
-          </p>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6, maxHeight:132, overflowY:"auto",
-                        border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px", background:"#fff" }}>
-            {TX_CITIES.map(city => {
-              const on = form.serviceCities.includes(city);
-              return (
-                <button type="button" key={city} onClick={()=>toggleArr("serviceCities", city)}
-                  style={{ padding:"6px 11px", borderRadius:99, fontSize:12, fontWeight:600, cursor:"pointer",
-                           border:`1.5px solid ${on ? C.orange : C.border}`,
-                           background: on ? C.orange : "#fff", color: on ? "#fff" : C.midGray,
-                           transition:"all 140ms" }}>
-                  {city}
-                </button>
-              );
-            })}
-          </div>
-          <p style={{ margin:"4px 0 0", fontSize:9, color:C.lightGray }}>
-            {form.serviceCities.length ? `${form.serviceCities.length} selected` : "Tap the cities you serve"}
-          </p>
-        </div>
-
-        {/* Availability — pick working days + hours (no free typing) */}
-        <div>
-          <p style={{ margin:"0 0 5px", fontSize:12, fontWeight:700, color:C.black }}>
-            Availability * <span style={{ color:C.lightGray, fontWeight:500 }}>— days you'll work</span>
-          </p>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {AVAIL_DAYS.map(d => {
-              const on = form.availDays.includes(d);
-              return (
-                <button type="button" key={d} onClick={()=>toggleArr("availDays", d)}
-                  style={{ flex:"1 1 auto", minWidth:42, padding:"9px 0", borderRadius:9, fontSize:12.5,
-                           fontWeight:700, cursor:"pointer", textAlign:"center",
-                           border:`1.5px solid ${on ? C.orange : C.border}`,
-                           background: on ? C.orange : "#fff", color: on ? "#fff" : C.midGray,
-                           transition:"all 140ms" }}>
-                  {d}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div>
-          <p style={{ margin:"0 0 5px", fontSize:12, fontWeight:700, color:C.black }}>
-            Working hours * <span style={{ color:C.lightGray, fontWeight:500 }}>— when you'll work</span>
-          </p>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
-            {TIME_BLOCKS.map(([val,label]) => {
-              const on = form.availBlocks.includes(val);
-              return (
-                <button type="button" key={val} onClick={()=>toggleArr("availBlocks", val)}
-                  style={{ padding:"10px 8px", borderRadius:9, fontSize:11.5, fontWeight:600, cursor:"pointer",
-                           border:`1.5px solid ${on ? C.orange : C.border}`,
-                           background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray,
-                           transition:"all 140ms" }}>
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {form.schedule && (
-            <p style={{ margin:"6px 0 0", fontSize:10, color:C.midGray }}>
-              📅 {form.schedule}
-            </p>
-          )}
-        </div>
-
-        {sel("category", [["food","Food & Drinks"],["music","Music & Performance"],
-          ["production","Decor & Styling"],["logistics","Logistics"],
-          ["places","Places & Venues (venue, restaurant, park…)"],
-          ["rentals","Rentals (chairs, tables, tents…)"],
-          ["av","Audio & Visual (stage, screens, sound, lights…)"],
-          ["event-planner","Event Planner"]],
-          "Choose your service type *")}
-
-        {/* Capacity + travel radius — dropdowns to avoid typos.
-           Places (venues, restaurants, parks) don't move, so no travel radius. */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-          <div>
-            {sel("capacity", [
-              ["0-20 people","0–20 people"],
-              ["20-50 people","20–50 people"],
-              ["50-100 people","50–100 people"],
-              ["100-200 people","100–200 people"],
-              ["200+ people","200+ people"],
-            ], "Guest capacity *")}
-            <p style={{ margin:"2px 0 0", fontSize:9, color:C.lightGray }}>
-              {form.category === "places" ? "Guests your space holds" : "People you can serve per event"}
-            </p>
-          </div>
-          <div>
-            {form.category === "places" ? (
-              <div style={{ height:44, display:"flex", alignItems:"center", padding:"0 12px",
-                            border:`1px dashed ${C.border}`, borderRadius:10, background:"#F9FAFB" }}>
-                <span style={{ fontSize:11.5, color:C.midGray }}>📍 Fixed location — no travel radius</span>
-              </div>
-            ) : (
-              sel("travelMiles", [
-                ["10","Up to 10 miles"],
-                ["25","Up to 25 miles"],
-                ["50","Up to 50 miles"],
-                ["100","Up to 100 miles"],
-                ["500","Statewide (100+ mi)"],
-              ], "Travel radius *")
-            )}
-            <p style={{ margin:"2px 0 0", fontSize:9, color:C.lightGray }}>
-              {form.category === "places" ? "Your venue stays put" : "Max distance from your base"}
-            </p>
-          </div>
-        </div>
-
-        {/* Service photos — now added after confirming, not here.
-
-            Uploading to storage needs an authenticated session, and with email
-            confirmation switched on there is no session until the vendor clicks
-            the link in their email. A browser cannot hold File objects across
-            that round trip. Leaving the picker here would collect photos and
-            silently discard them, which is worse than not asking. */}
-        <div style={{ background:"#F0F9FF", borderRadius:12, padding:"12px 14px",
-                      border:"1px solid #BAE6FD" }}>
-          <p style={{ margin:"0 0 4px", fontSize:11, fontWeight:700, color:"#075985" }}>
-            📸 Photos come next
-          </p>
-          <p style={{ margin:0, fontSize:11, color:"#0369A1", lineHeight:1.6 }}>
-            Confirm your email, sign in, and add photos from your dashboard — you
-            can upload up to {MAX_PHOTOS} per listing and reorder them there.
-            Listings with photos get noticeably more requests, so it's worth doing
-            before you go live.
-          </p>
-        </div>
-
-        {/* Document upload */}
-        <div style={{ background:"#F9FAFB", borderRadius:12, padding:"12px 14px",
-                      border:`1.5px dashed ${docFile ? C.green : C.border}` }}>
-          <p style={{ margin:"0 0 6px", fontSize:11, fontWeight:700, color:C.black }}>
-            📎 Business license / ID document (optional but recommended)
-          </p>
-          <p style={{ margin:"0 0 8px", fontSize:10, color:C.midGray, lineHeight:1.5 }}>
-            Upload a photo or scan of your business license, state ID, or registration.
-            Accepted: JPEG, PNG, PDF — max 4 MB. Stored in your private account only.
-          </p>
-          <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
-            onChange={handleDocUpload}
-            style={{ fontSize:12, color:C.midGray, width:"100%" }} />
-          {docFile && (
-            <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:10, background:C.greenSoft, color:C.green,
-                             padding:"2px 8px", borderRadius:99, fontWeight:700 }}>✓ Uploaded</span>
-              <span style={{ fontSize:10, color:C.midGray }}>
-                {docFile.name} ({(docFile.size/1024).toFixed(0)} KB)
-              </span>
-              <button onClick={()=>setDocFile(null)} className="btn"
-                style={{ fontSize:10, background:"none", border:"none", color:"#EF4444",
-                         padding:0, cursor:"pointer" }}>✕</button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-
-    /* STEP 4 (vendor) / STEP 2 (user+admin): CAPTCHA + ToS */
+    /* STEP 2 (everyone): CAPTCHA + ToS */
     return (
       <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
         <div style={{ background:"#F9FAFB", borderRadius:12, padding:"14px 16px" }}>
@@ -4736,9 +4512,9 @@ function AuthModal({ onClose, onAuth }) {
           <div style={{ background:"#FFFBEB", borderRadius:10, padding:"12px 14px",
                         border:"1px solid #FCD34D" }}>
             <p style={{ margin:0, fontSize:11, color:"#92400E", lineHeight:1.65 }}>
-              <strong>📋 What happens next:</strong> Account created → email verified →
-              admin reviews your business documents → approval notification sent to {form.email || "your email"}.
-              Services are not publicly visible until approved.
+              <strong>📋 What happens next:</strong> confirm your email → add your business
+              details and your listings from your dashboard → PLUG reviews and approves your
+              business → your listings go live. You'll see the approval in your dashboard.
             </p>
           </div>
         )}
@@ -4801,11 +4577,18 @@ function AuthModal({ onClose, onAuth }) {
             </div>
           )}
 
-          {tab === "signup" && role === "vendor" && <StepDots />}
-          {tab === "signup" && role === "vendor" && (
-            <p style={{ margin:0, fontSize:14, fontWeight:800, color:C.black }}>
-              {["","Account Info","Business Info","Location & Service","Verify & Submit"][step]}
-            </p>
+          {tab === "signup" && role === "vendor" && step === 1 && (
+            <div style={{ background:"#FFF7ED", border:`1px solid ${C.orangeBorder}`, borderRadius:10,
+                          padding:"10px 12px" }}>
+              <p style={{ margin:0, fontSize:12, fontWeight:800, color:C.orange }}>
+                Creating your vendor account takes one minute
+              </p>
+              <p style={{ margin:"3px 0 0", fontSize:11.5, color:"#9A3412", lineHeight:1.55 }}>
+                Just the basics now. After you confirm your email, your dashboard walks you
+                through your business details and your first <strong>listing</strong> — each
+                service you offer (a DJ set, a taco truck, a venue) is its own listing.
+              </p>
+            </div>
           )}
 
           {renderStep()}
@@ -4828,7 +4611,7 @@ function AuthModal({ onClose, onAuth }) {
                        border:"none", boxShadow: loading ? "none" : C.shadowButton }}>
               {loading ? "Please wait…"
                 : tab === "login" ? "Log in"
-                : isLastStep ? (role === "vendor" ? "Submit application" : "Create account & verify email")
+                : isLastStep ? (role === "vendor" ? "Create vendor account" : "Create account & verify email")
                 : "Continue →"}
             </button>
           </div>
@@ -9997,6 +9780,10 @@ function ResetPasswordScreen({ token, onDone }) {
    record; the business details live on vendor_profiles and are shared. */
 /* ServicesManager moved to src/dashboards/VendorDashboard.jsx (23 Sep 2026) - loaded on demand. */
 export function VendorListingEditor({ user, onClose, onSaved }) {
+  /* Business profile = WHO you are. Since 30 Sep 2026 this no longer asks for
+     service types, prices, capacity or availability: those belong to each
+     listing, and asking for them here as well is what left vendors staring at
+     "Service: Not set" and wondering which of two places to fill in. */
   const [f, setF]           = useState(null);
   const [loading, setLoad]  = useState(true);
   const [saving, setSaving] = useState(false);
@@ -10008,19 +9795,17 @@ export function VendorListingEditor({ user, onClose, onSaved }) {
     (async () => {
       const d = await getMyListing(user.id);
       setF({
-        business_name: d?.business_name || d?.biz_legal || "",
-        category:      d?.category      || "food",
-        subcategory:   d?.subcategory   || "",
-        service_type:  d?.service_type  || "",
+        business_name: d?.business_name || "",
         description:   d?.description   || "",
-        price_value:   d?.price_value != null ? String(d.price_value) : "",
-        capacity:      d?.capacity      || "",
-        project_size:  d?.project_size  || "",
-        years_in_biz:  d?.years_in_biz != null ? String(d.years_in_biz) : "",
-        travel_miles:  d?.travel_miles != null ? String(d.travel_miles) : "",
+        biz_phone:     d?.biz_phone     || "",
+        biz_address:   d?.biz_address   || "",
+        biz_city:      d?.biz_city      || "",
+        biz_zip:       d?.biz_zip       || "",
         service_areas: d?.service_areas || "",
-        schedule:      d?.schedule      || "",
-        event_types:   parseEventTypes(d?.event_types),
+        years_in_biz:  d?.years_in_biz != null ? String(d.years_in_biz) : "",
+        biz_legal:     d?.biz_legal     || "",
+        biz_license:   d?.biz_license   || "",
+        biz_website:   d?.biz_website   || "",
         photos:        parsePhotos(d?.photos),
       });
       setLoad(false);
@@ -10052,39 +9837,42 @@ export function VendorListingEditor({ user, onClose, onSaved }) {
     setUp(false);
   }
 
-  /* Removal (and reordering) now live in PhotoManager, which owns the whole
-     list and hands back the new one. */
-
   async function save() {
     setErr(""); setOk("");
-    if (!f.business_name.trim()) { setErr("Business name is required."); return; }
-    if (!f.description.trim())   { setErr("Please describe the service you provide."); return; }
+    const missing = [];
+    if (!f.business_name.trim()) missing.push("business name");
+    if (!f.description.trim())   missing.push("a short description of your business");
+    if (!f.biz_phone.trim())     missing.push("business phone");
+    if (!f.biz_city.trim())      missing.push("city");
+    if (!f.biz_zip.trim())       missing.push("ZIP code");
+    if (!f.service_areas.trim()) missing.push("at least one service area");
+    if (missing.length) { setErr("Please add " + missing.join(", ") + "."); return; }
     setSaving(true);
+    const yrs = String(f.years_in_biz || "").replace(/[^0-9]/g, "");
     const res = await saveMyListing(user.id, {
       business_name: f.business_name.trim(),
-      category:      f.category,
-      subcategory:   f.subcategory || null,
-      service_type:  f.service_type || null,
       description:   f.description.trim(),
-      price_value:   f.price_value === "" ? null : Number(f.price_value),
-      capacity:      f.capacity || null,
-      project_size:  f.project_size || null,
-      years_in_biz:  f.years_in_biz === "" ? null : parseInt(f.years_in_biz) || null,
-      travel_miles:  f.category === "places" ? null : (f.travel_miles === "" ? null : parseInt(f.travel_miles) || null),
-      service_areas: f.service_areas || null,
-      schedule:      f.schedule || null,
-      event_types:   parseEventTypes(f.event_types),
+      biz_phone:     f.biz_phone.trim(),
+      biz_address:   f.biz_address.trim() || null,
+      biz_city:      f.biz_city.trim(),
+      biz_zip:       f.biz_zip.trim(),
+      service_areas: f.service_areas,
+      years_in_biz:  yrs === "" ? null : parseInt(yrs, 10),
+      biz_legal:     f.biz_legal.trim() || null,
+      biz_license:   f.biz_license.trim() || null,
+      biz_website:   f.biz_website.trim() || null,
       photos:        f.photos,
     });
     setSaving(false);
     if (!res.ok) { setErr(res.error); return; }
-    setOk("Listing saved — your changes are live.");
+    setOk("Business details saved.");
     if (onSaved) onSaved();
   }
 
   const F = { width:"100%", height:42, padding:"0 12px", border:`1px solid ${C.border}`,
               borderRadius:9, fontSize:13, boxSizing:"border-box", background:"#fff" };
   const L = { display:"block", fontSize:11, fontWeight:700, color:C.midGray, margin:"10px 0 4px" };
+  const Opt = () => <span style={{ fontWeight:400, color:C.lightGray }}>(optional)</span>;
 
   return (
     <div className="modal-overlay" onClick={onClose}
@@ -10094,17 +9882,19 @@ export function VendorListingEditor({ user, onClose, onSaved }) {
         style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:520,
                  maxHeight:"88vh", overflowY:"auto", padding:"22px 22px 26px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>🏪 Edit business info</h2>
+          <h2 style={{ margin:0, fontSize:17, fontWeight:800 }}>🏪 Business details</h2>
           <button onClick={onClose} className="btn"
             style={{ border:"none", background:"#F3F4F6", borderRadius:99, width:28, height:28 }}>✕</button>
         </div>
 
         {loading || !f ? (
-          <p style={{ fontSize:13, color:C.midGray, marginTop:16 }}>Loading your listing…</p>
+          <p style={{ fontSize:13, color:C.midGray, marginTop:16 }}>Loading…</p>
         ) : (
           <>
-            <p style={{ fontSize:12, color:C.midGray, margin:"6px 0 0" }}>
-              This is what customers see. You can change it any time.
+            <p style={{ fontSize:12, color:C.midGray, margin:"6px 0 0", lineHeight:1.55 }}>
+              Who you are as a business. PLUG uses this to approve you, and hosts see your name,
+              description, photos and service areas. What you sell — prices, capacity, availability —
+              goes in each <strong>listing</strong>.
             </p>
 
             {err && <div style={{ background:"#FEF2F2", border:"1px solid #FCA5A5", color:"#B91C1C",
@@ -10112,122 +9902,72 @@ export function VendorListingEditor({ user, onClose, onSaved }) {
             {ok  && <div style={{ background:C.greenSoft, border:`1px solid ${C.green}55`, color:"#065F46",
                                   borderRadius:9, padding:"9px 12px", marginTop:12, fontSize:12, fontWeight:600 }}>✓ {ok}</div>}
 
-            <label style={L}>Business name *</label>
+            <label style={L}>Business name * <span style={{ fontWeight:400, color:C.lightGray }}>(what hosts see)</span></label>
             <input style={F} value={f.business_name} onChange={e=>set("business_name", e.target.value)} />
 
-            <label style={L}>Service types you offer * <span style={{fontWeight:400, color:C.lightGray}}>(tap all that apply)</span></label>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:4 }}>
-              {CATEGORIES.filter(c=>c.id!=="all"&&c.id!=="build").map(c => {
-                const cur = parseEventTypes(f.service_categories);
-                const on = cur.includes(c.id) || f.category === c.id;
+            <label style={L}>About your business *</label>
+            <textarea value={f.description} onChange={e=>set("description", e.target.value)}
+              rows={3} maxLength={2000} placeholder="Who you are, what you're known for, what makes you different."
+              style={{ ...F, height:"auto", padding:"10px 12px", resize:"vertical", fontFamily:"inherit" }} />
+
+            <label style={L}>Business phone * <span style={{ fontWeight:400, color:C.lightGray }}>(private — only PLUG sees it)</span></label>
+            <input style={F} type="tel" value={f.biz_phone} onChange={e=>set("biz_phone", e.target.value)} />
+
+            <label style={L}>Street address <Opt /></label>
+            <input style={F} value={f.biz_address} onChange={e=>set("biz_address", e.target.value)} />
+            <div style={{ display:"flex", gap:8 }}>
+              <div style={{ flex:2 }}>
+                <label style={L}>City *</label>
+                <input style={F} value={f.biz_city} onChange={e=>set("biz_city", e.target.value)} />
+              </div>
+              <div style={{ flex:1 }}>
+                <label style={L}>ZIP *</label>
+                <input style={F} inputMode="numeric" maxLength={10} value={f.biz_zip} onChange={e=>set("biz_zip", e.target.value)} />
+              </div>
+            </div>
+
+            <label style={L}>Where you work * <span style={{ fontWeight:400, color:C.lightGray }}>(tap all that apply)</span></label>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {TX_CITIES.map(city => {
+                const sel = String(f.service_areas || "").split(",").map(x=>x.trim()).filter(Boolean);
+                const on = sel.includes(city);
                 return (
-                  <button type="button" key={c.id}
-                    onClick={()=>{
-                      const next = on ? cur.filter(x=>x!==c.id) : [...cur.filter(x=>x!==c.id), c.id];
-                      set("service_categories", next);
-                      /* keep the legacy single category in step with the first pick */
-                      const primary = next[0] || "";
-                      set("category", primary);
-                      set("service_type", (CATEGORIES.find(x=>x.id===primary)||{}).label || primary);
-                    }}
-                    style={{ padding:"7px 13px", borderRadius:99, fontSize:12, fontWeight:700, cursor:"pointer",
+                  <button type="button" key={city}
+                    onClick={()=> set("service_areas", (on ? sel.filter(c=>c!==city) : [...sel, city]).join(", "))}
+                    style={{ padding:"5px 11px", borderRadius:99, fontSize:11.5, fontWeight:600, cursor:"pointer",
                              border:`1.5px solid ${on ? C.orange : C.border}`,
                              background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                    {on ? "✓ " : ""}{c.label || c.id}
+                    {on ? "✓ " : ""}{city}
                   </button>
                 );
               })}
             </div>
-            <p style={{ margin:"0 0 6px", fontSize:10.5, color:C.lightGray }}>
-              Pick every category your business works in. You'll create a separate listing for each service later.
-            </p>
 
-            <label style={L}>Describe your company and what you provide *</label>
-            <textarea value={f.description} onChange={e=>set("description", e.target.value)}
-              rows={4} placeholder="Who you are as a business, what you offer, and what makes you different."
-              style={{ ...F, height:"auto", padding:"10px 12px", resize:"vertical", fontFamily:"inherit" }} />
+            <label style={L}>Years in business <Opt /></label>
+            <input style={F} inputMode="numeric" maxLength={3} value={f.years_in_biz}
+              onChange={e=>set("years_in_biz", e.target.value.replace(/[^0-9]/g, ""))} />
 
-            {/* Business-level details only. Price, capacity, add-ons and
-                availability belong to each LISTING, not the company profile. */}
             <div style={{ background:"#F9FAFB", border:`1px solid ${C.border}`, borderRadius:10,
-                          padding:"10px 12px", marginTop:14 }}>
-              <p style={{ margin:0, fontSize:11, fontWeight:700, color:C.midGray }}>
-                About your business — edit any time
+                          padding:"4px 12px 12px", marginTop:14 }}>
+              <p style={{ margin:"8px 0 0", fontSize:11, fontWeight:700, color:C.midGray }}>
+                Helps us approve you faster <Opt />
               </p>
-              <label style={L}>Years in business</label>
-              <select style={F} value={f.years_in_biz || ""} onChange={e=>set("years_in_biz", e.target.value)}>
-                <option value="">Select…</option>
-                {["Less than 1","1","2","3","4","5","6","7","8","9","10","11–15","16–20","20+"].map(y => (
-                  <option key={y} value={y}>{y === "Less than 1" ? y : y + (y.includes("+")||y.includes("–") ? " years" : " year" + (y==="1"?"":"s"))}</option>
-                ))}
-              </select>
-
-              <label style={L}>Service areas <span style={{fontWeight:400, color:C.lightGray}}>(tap all that apply)</span></label>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {TX_CITIES.map(city => {
-                  const sel = String(f.service_areas || "").split(",").map(x=>x.trim()).filter(Boolean);
-                  const on = sel.includes(city);
-                  return (
-                    <button type="button" key={city}
-                      onClick={()=> set("service_areas",
-                        (on ? sel.filter(c=>c!==city) : [...sel, city]).join(", "))}
-                      style={{ padding:"5px 11px", borderRadius:99, fontSize:11.5, fontWeight:600, cursor:"pointer",
-                               border:`1.5px solid ${on ? C.orange : C.border}`,
-                               background: on ? "#FFF7ED" : "#fff", color: on ? C.orange : C.midGray }}>
-                      {on ? "✓ " : ""}{city}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div style={{ marginTop:12, background:"#EFF6FF", border:"1px solid #BFDBFE",
-                            borderRadius:9, padding:"9px 11px" }}>
-                <p style={{ margin:0, fontSize:11, color:"#1E40AF", lineHeight:1.55 }}>
-                  💡 <strong>Pricing, capacity, add-ons, availability and travel radius</strong> are set
-                  per listing — add them when you create each listing below.
-                </p>
-              </div>
-
-
-              {/* Event types this vendor works — matched to the host's occasion */}
-              <label style={L}>Event types you work <span style={{fontWeight:400}}>(leave all off = every occasion)</span></label>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {EVENT_TYPES.map(t => {
-                  const cur = parseEventTypes(f.event_types);
-                  const on = cur.includes(t.id);
-                  return (
-                    <button type="button" key={t.id}
-                      onClick={()=> set("event_types", on ? cur.filter(x=>x!==t.id) : [...cur, t.id])}
-                      className="btn"
-                      style={{ padding:"7px 12px", borderRadius:99, fontSize:12, fontWeight:600, cursor:"pointer",
-                               border:`1.5px solid ${on ? C.orange : C.border}`,
-                               background: on ? C.orange : "#fff", color: on ? "#fff" : C.midGray }}>
-                      {t.icon} {t.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <label style={L}>Legal business name</label>
+              <input style={F} value={f.biz_legal} onChange={e=>set("biz_legal", e.target.value)} />
+              <label style={L}>Business license / permit number</label>
+              <input style={F} value={f.biz_license} onChange={e=>set("biz_license", e.target.value)} />
+              <label style={L}>Website or social page</label>
+              <input style={F} value={f.biz_website} onChange={e=>set("biz_website", e.target.value)} />
             </div>
 
-
-            {/* Photos */}
-            <label style={L}>Photos <span style={{fontWeight:400}}>({f.photos.length}/{MAX_PHOTOS} — first is the cover)</span></label>
-            <PhotoManager
-              photos={f.photos}
-              onChange={(next) => set("photos", next)}
-              size={78} />
+            <label style={L}>Business photos <span style={{fontWeight:400}}>({f.photos.length}/{MAX_PHOTOS} — logo or team photo; first is the cover)</span></label>
+            <PhotoManager photos={f.photos} onChange={(next) => set("photos", next)} size={78} />
             <input type="file" accept="image/*" multiple onChange={addPhotos}
-              disabled={uploading || f.photos.length >= MAX_PHOTOS}
-              style={{ fontSize:12 }} />
+              disabled={uploading || f.photos.length >= MAX_PHOTOS} style={{ fontSize:12 }} />
             {uploading && <p style={{ fontSize:11, color:C.midGray, margin:"6px 0 0" }}>Uploading…</p>}
             {!uploading && f.photos.length > 0 && (
               <p style={{ fontSize:11, color:"#B45309", margin:"6px 0 0", fontWeight:600 }}>
-                ⚠ Click “Save listing” below or your photos won't be kept.
-              </p>
-            )}
-            {!uploading && f.photos.length === 0 && (
-              <p style={{ fontSize:11, color:C.midGray, margin:"6px 0 0" }}>
-                No photos yet. Customers are far more likely to book listings with photos.
+                ⚠ Press “Save business details” below or your photos won't be kept.
               </p>
             )}
 
@@ -10235,7 +9975,7 @@ export function VendorListingEditor({ user, onClose, onSaved }) {
               style={{ width:"100%", marginTop:18, padding:"12px 0", borderRadius:10, background:C.black,
                        color:"#fff", border:"none", fontSize:14, fontWeight:700,
                        opacity:(saving||uploading)?0.6:1 }}>
-              {saving ? "Saving…" : "Save listing"}
+              {saving ? "Saving…" : "Save business details"}
             </button>
           </>
         )}
@@ -10257,6 +9997,36 @@ const INFO_CONTENT = {
     ["How we vet vendors", "Vendors submit business details and documentation when they apply. Our team reviews each application before a listing goes live, and we can remove a listing at any time if standards are not met."],
     ["Contact", "For questions, use the Help center or contact the vendor directly through their listing."],
   ],
+  /* Plain-language guides, written 30 Sep 2026 for people who have never used
+     PLUG. Keep the button names here in step with the real buttons — a guide
+     that says "press Submit" when the button says "Send" is worse than none. */
+  "Host guide": [
+    ["Who this is for", "A host is anyone planning an event and booking vendors for it — a birthday, a wedding, a corporate party. Browsing PLUG is free and you don't need an account to look around."],
+    ["1. Create your account", "Press Log in / Sign up at the top of the page, choose Sign up, and pick Host. Enter your name, email, a password, your phone number and date of birth (you must be 18 or older). On the next screen answer the quick human check, accept PLUG's terms, and press Create account & verify email."],
+    ["2. Confirm your email", "We send you an email titled Confirm your email address. Open the newest one, tap Confirm my email address, then press Confirm my email on the PLUG page that opens. The link works once and stops working after 10 minutes — if it has expired, sign up again with the same email or use Forgot password? to get a fresh link."],
+    ["3. Find vendors", "Use the search bar at the top — where, when, what service and how many guests — or pick a category such as Food & Drinks or Music & Performance. PLUG only shows vendors who serve your area, have room for your guest count and are free on your date. Not sure what you need? Build My Event asks a few questions and suggests a full lineup."],
+    ["4. Build your lineup", "On any listing press Request to book to add it to your cart. Add as many vendors as you need — food, music, decor, rentals. Open the cart, set your event date, time, address and guest count once, and they apply to every vendor in it."],
+    ["5. Send your requests", "In the cart press Send booking requests. A request is not a booking yet: each vendor reviews it and accepts or declines. You'll get a notification and an email either way."],
+    ["6. Track and change requests", "Open your account (your initials at the top right) and go to My Requests. You can see each request's status, use Edit request to change the date, guests or venue while it's still pending, or cancel it. Cancelling a request that hasn't been accepted is always free."],
+    ["7. Talk to your vendors", "Use Messages in your account to ask questions or share details. Conversations stay open until 3 days after the event."],
+    ["8. Paying", "PLUG doesn't take payment today. Once a vendor accepts, agree the price, deposit and payment method directly with them. See Cancellations and refunds for what applies."],
+    ["9. After the event", "Leave a review for each vendor. It helps other hosts and helps good vendors get booked. You can choose to show your name or stay a Verified customer."],
+    ["Forgot your password?", "Press Log in / Sign up, enter your email and press Forgot password?. Open the newest email, tap the link, type your new password twice and press Save new password. You'll be signed in straight away."],
+  ],
+  "Vendor guide": [
+    ["Who this is for", "A vendor is a business that provides a service at events — a DJ, a caterer, a food truck, a venue, a photographer, rentals. On PLUG you have one business account and as many listings as services you offer."],
+    ["1. Create your account", "Press Log in / Sign up, choose Sign up, and pick Vendor. Enter your name, your business name, email, password, phone and date of birth. On the next screen answer the human check, accept PLUG's terms and press Create vendor account. That's all the signup asks."],
+    ["2. Confirm your email", "Open the newest Confirm your email address email, tap the link, and press Confirm my email on the page that opens. The link works once and expires after 10 minutes. You'll land in your vendor dashboard."],
+    ["3. Add your business details", "Your dashboard shows a short checklist. The first step is Add business details: business name, a short description of your business, business phone, city and ZIP, and the areas you work in. Your phone number is private — only PLUG sees it. Legal name, license number and website are optional but help us approve you faster. You can change all of this later under Business profile."],
+    ["4. Create your listings", "A listing is one service hosts can book. A DJ who also rents a photo booth has two listings; a caterer with a taco truck and a dessert truck has two. Go to My listings and press Add listing. For each one set the category, a description, a starting price, guest capacity, photos (up to 10, the first is the cover), where you'll travel, and when you're available. Listings with good photos and a clear description get far more requests."],
+    ["5. Approval", "PLUG reviews your business details, usually within 1–2 business days. Your listings stay hidden until you're approved, then go live automatically. You'll get a notification in your dashboard and the checklist turns green."],
+    ["6. Answer booking requests", "When a host sends a request it appears under Requests and in Notifications, and we email you. Open it to see the date, time, guest count, venue and message. Press Accept booking to confirm or Decline if you can't do it. Please answer quickly — hosts often send requests to several vendors and book whoever confirms first."],
+    ["7. Keep your calendar honest", "Use Availability to block dates you're already booked or away. In each listing you can also set how many events you take per day, how many hours you need between events, and how much notice you need. PLUG won't show you to hosts for times you can't do."],
+    ["8. Messages", "Use Messages to answer host questions before and after you accept. Conversations stay open until 3 days after the event."],
+    ["9. Getting paid", "PLUG doesn't take payment today. Once you accept, agree the price, deposit and payment method directly with the host, and put your cancellation terms in writing."],
+    ["10. After the event", "Hosts can review you, and you can rate the host from the request. Reviews appear under Reviews."],
+    ["Pausing or leaving", "Under Account settings you can pause your business (your listings come off the marketplace and come back when you log in again) or close your account for good."],
+  ],
   "How it works": [
     ["1. Tell us about your event", "Enter where your event is, when it is, what service you need, and how many guests. We only show vendors who can actually serve those criteria."],
     ["2. Browse and compare", "Review vendor listings, photos, pricing, capacity, service areas and availability."],
@@ -10266,7 +10036,8 @@ const INFO_CONTENT = {
   "Help center": [
     ["I sent a request but haven't heard back", "Vendors approve or decline requests themselves. If a vendor has not responded, you can cancel the request and send it to another vendor."],
     ["How do I change or cancel a request?", "Open your account menu, go to My Requests, and use the cancel option on any pending request."],
-    ["I'm a vendor — how do I edit my listing?", "Sign in, open your account menu, and choose “Edit my listing, services & photos”. Changes appear on your public listing right away."],
+    ["I'm a vendor — how do I edit my listing?", "Sign in to open your vendor dashboard. Go to My listings to edit a service, its price, photos or availability, or Business profile to edit your business details. Changes appear right away. The Vendor guide walks through everything."],
+    ["Where are the step-by-step guides?", "See the Host guide and the Vendor guide, linked at the bottom of every page."],
     ["Why can't I see a vendor?", "Listings only appear once a vendor is approved, and results are filtered by your location, guest count and service criteria. Clearing your search criteria shows more results."],
   ],
   "Terms": [
@@ -10335,7 +10106,7 @@ const INFO_CONTENT = {
   ],
 };
 
-function InfoPageModal({ page, onClose }) {
+export function InfoPageModal({ page, onClose }) {
   /* Fetched on open so a changed address appears without a redeploy. */
   const [contact, setContact] = useState(_platformSettings);
   useEffect(() => { loadPlatformSettings().then(s => setContact({ ...s })); }, []);
@@ -12624,7 +12395,7 @@ export default function PlugApp() {
             One un-wrapped row in the footer was doing that to every screen on
             the site. */}
         <div style={{ display:"flex", gap:20, flexWrap:"wrap", justifyContent:"center" }}>
-          {["About","How it works","Become a vendor","Help center","Cancellations and refunds","Terms","Privacy","Marketplace rules"].map(l=>(
+          {["About","How it works","Host guide","Vendor guide","Become a vendor","Help center","Cancellations and refunds","Terms","Privacy","Marketplace rules"].map(l=>(
             <span key={l} onClick={()=>{
                 if (l==="Become a vendor") { setAuthModal(true); return; }
                 setInfoPage(l);
