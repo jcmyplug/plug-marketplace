@@ -175,7 +175,13 @@ export const CORS_CONFIG = Object.freeze({
    * Only people with this key can create admin accounts.
    * IMPORTANT: Change this value before going live.
    */
-  adminSetupKey: (typeof process !== "undefined" && process.env && process.env.REACT_APP_ADMIN_SETUP_KEY) || "PLUG-ADMIN-2026",
+  /* adminSetupKey removed 30 Sep 2026. It was a "secret" shipped inside the
+     public JavaScript bundle, so anyone could read it, and it guarded an
+     Admin option on the public signup form. The database never honoured it -
+     handle_new_user turns any requested role other than vendor into user, and
+     admin rights live in admin_users, which no client can write - but a
+     visible Admin button with a password box next to it is an invitation to
+     try. Admins are added in Supabase by the owner, never through the site. */
 });
 
 /* Returns true if the given origin is on the allowlist */
@@ -3884,8 +3890,6 @@ function AuthModal({ onClose, onAuth }) {
         if (age < 18) { setErr("You must be at least 18 years old to create an account."); return false; }
         if (age > 120) { setErr("Please enter a valid date of birth."); return false; }
       }
-      if (role === "admin" && form.setupKey.trim() !== CORS_CONFIG.adminSetupKey)
-        { setErr("Invalid administrator setup key."); return false; }
       return true;
     }
     if (step === 2 && role === "vendor") {
@@ -4399,7 +4403,6 @@ function AuthModal({ onClose, onAuth }) {
           {inp("Last name",  "lastName",  "text", true)}
         </div>
         {role === "vendor" && inp("Business / stage name", "business", "text", true)}
-        {role === "admin"  && inp("Administrator setup key", "setupKey", "password", true)}
         {inp("Email address", "email", "email", true)}
         {inp("Password", "password", "password", true)}
         {/* Requirements shown up front rather than revealed one error at a time.
@@ -4784,7 +4787,7 @@ function AuthModal({ onClose, onAuth }) {
             <div>
               <p style={{ fontSize:11, fontWeight:600, color:C.midGray, marginBottom:8 }}>I am a…</p>
               <div style={{ display:"flex", gap:7 }}>
-                {[["user","👤","Host"],["vendor","🏪","Vendor"],["admin","🛡️","Admin"]].map(([r,em,label])=>(
+                {[["user","👤","Host"],["vendor","🏪","Vendor"]].map(([r,em,label])=>(
                   <button key={r} onClick={()=>{setRole(r);setStep(1);}} className="btn"
                     style={{ flex:1, padding:"9px 6px", borderRadius:12,
                              border:`2px solid ${role===r ? C.orange : C.border}`,
