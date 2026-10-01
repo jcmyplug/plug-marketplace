@@ -3061,6 +3061,24 @@ function track(event, props) {
      /c/food/catering      a category and subcategory
      /vendor/<id>          one listing
 ────────────────────────────────────────────────────────────────────────────── */
+/* Read the one-time token out of a confirmation or reset link.
+
+   Called during the first render, not from an effect, and that is not a style
+   preference. The "URL follows the view" effect rewrites the address bar to
+   match whatever is on screen — for the home view, plain "/" — and it is
+   declared earlier, so it runs first and takes the query string with it. An
+   effect reading window.location.search afterwards finds an empty string and
+   the link silently does nothing. Render happens before any of that. */
+function readEmailLinkFromUrl() {
+  if (typeof window === "undefined") return null;
+  const q  = new URLSearchParams(window.location.search || "");
+  const th = q.get("token_hash");
+  const ty = q.get("type");
+  if (!th || !ty) return null;
+  if (!["signup", "recovery", "email", "email_change", "invite", "magiclink"].includes(ty)) return null;
+  return { type: ty, tokenHash: th };
+}
+
 function parsePath(p) {
   const seg = String(p || "/").split("/").filter(Boolean);
   if (!seg.length) return { kind: "home" };
@@ -10811,8 +10829,10 @@ export default function PlugApp() {
   const [authModal, setAuthModal] = useState(false);
   /* Password-recovery: set when arriving via a Supabase recovery email link */
   const [recoveryToken, setRecoveryToken] = useState(null);
-  /* Set when the page was opened from a confirmation or reset email. */
-  const [emailLink, setEmailLink] = useState(null);
+  /* Set when the page was opened from a confirmation or reset email. Captured
+     during the first render — see readEmailLinkFromUrl for why it cannot wait
+     for an effect. */
+  const [emailLink, setEmailLink] = useState(readEmailLinkFromUrl);
 
   /* ── MAINTENANCE MODE ──
      Starts at false — assume open — rather than null. Starting at "unknown"
@@ -11272,15 +11292,9 @@ export default function PlugApp() {
      referrer of anything the page loads next, and in whatever the person
      pastes when they ask for help with it. */
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const q = new URLSearchParams(window.location.search || "");
-    const th = q.get("token_hash");
-    const ty = q.get("type");
-    if (!th || !ty) return;
-    if (!["signup", "recovery", "email", "email_change", "invite", "magiclink"].includes(ty)) return;
-    setEmailLink({ type: ty, tokenHash: th });
+    if (!emailLink || typeof window === "undefined") return;
     try { window.history.replaceState(null, "", "/"); } catch { /* older browser */ }
-  }, []);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onEmailLinkSession(session) {
     const ty = emailLink?.type;
