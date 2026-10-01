@@ -210,7 +210,7 @@ function AdminAccounts({ adminId }) {
         style={{ width:"100%", height:38, padding:"0 12px", border:`1px solid ${C.border}`,
                  borderRadius:9, fontSize:12.5, marginBottom:8, boxSizing:"border-box" }} />
       <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-        {[["all","Everyone"],["user","Users"],["vendor","Vendors"]].map(([k,l]) => (
+        {[["all","Everyone"],["user","Hosts"],["vendor","Vendors"]].map(([k,l]) => (
           <button key={k} onClick={()=>setKF(k)} className="btn"
             style={{ padding:"5px 12px", borderRadius:99, fontSize:11.5, fontWeight:700, cursor:"pointer",
                      border:`1px solid ${kindFilter===k?C.orange:C.border}`,
@@ -239,7 +239,7 @@ function AdminAccounts({ adminId }) {
                   <span style={{ marginLeft:6, fontSize:9.5, fontWeight:800, padding:"2px 7px", borderRadius:99,
                                  background: isAdminRow ? "#EDE9FE" : isVendor ? "#EFF6FF" : "#F3F4F6",
                                  color: isAdminRow ? "#6D28D9" : isVendor ? "#1D4ED8" : C.midGray }}>
-                    {isAdminRow ? "ADMIN" : isVendor ? "VENDOR" : "USER"}
+                    {isAdminRow ? "ADMIN" : isVendor ? "VENDOR" : "HOST"}
                   </span>
                   {blocked && (
                     <span style={{ marginLeft:5, fontSize:9.5, fontWeight:800, padding:"2px 7px",

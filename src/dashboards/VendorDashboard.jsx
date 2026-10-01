@@ -1144,7 +1144,7 @@ function VendorDashboard({ user, onLogout }) {
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:"8px 16px",
                                 background:"#F9FAFB", border:`1px solid ${C.border}`, borderRadius:11, padding:"12px 14px" }}>
                     {[
-                      ["👤 Requested by", r.userName || "Customer"],
+                      ["👤 Requested by", r.userName || "Host"],
                       ["🎉 Event type",   r.eventType || "—"],
                       ["📅 Date",         r.eventDate || "TBD"],
                       ["🕐 Time",         fmtTimeRange(r.startTime, r.endTime) || "TBD"],
