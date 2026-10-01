@@ -29,6 +29,7 @@ import {
   formatEventLocation,
   getMyListing,
   getMyServices,
+  InfoPageModal,
   getNotifs,
   getReviewsAbout,
   getVendorInquiries,
@@ -865,6 +866,9 @@ function VendorDashboard({ user, onLogout }) {
      mention of them anywhere in the dashboard, and it linked to Requests — so
      a vendor could see they had 5.0 stars and had no way to read why. */
   const [revs,     setRevs]     = useState([]);
+  /* How many listings this vendor has. Drives step 2 of the setup checklist. */
+  const [svcCount, setSvcCount] = useState(null);
+  const [showGuide, setShowGuide] = useState(false);
 
   /* Account settings. Vendors had no way to leave: deactivate and delete lived
      only in the customer panel, which a vendor account never opens. Same two
@@ -899,12 +903,14 @@ function VendorDashboard({ user, onLogout }) {
   const reload = React.useCallback(async (opts) => {
     /* quiet: background re-checks must not flash the loading state. */
     if (!(opts && opts.quiet)) setLoading(true);
-    const [r, l, n, rv] = await Promise.all([
+    const [r, l, n, rv, sv] = await Promise.all([
       RLS.getMyRequests(user).catch(()=>[]),
       getMyListing(user.id).catch(()=>null),
       getNotifs(user.id).catch(()=>[]),
       getReviewsAbout(user.id).catch(()=>[]),
+      getMyServices(user.id).catch(()=>[]),
     ]);
+    setSvcCount(Array.isArray(sv) ? sv.length : 0);
     setRequests(Array.isArray(r) ? r : []);
     setListing(l);
     setNotifs(Array.isArray(n) ? n : []);
@@ -945,8 +951,12 @@ function VendorDashboard({ user, onLogout }) {
   const isApproved = (listing?.verification_status || user.status) === "approved";
   const unread = notifs.filter(n => !n.read).length;
 
-  const listingComplete = !!(listing?.business_name && listing?.description &&
-                             (Array.isArray(listing?.photos) && listing.photos.length));
+  /* The three things a new vendor has to do, in order. Business details are
+     what PLUG approves; a listing is what hosts book. */
+  const detailsDone = !!(listing?.business_name && listing?.description && listing?.biz_phone &&
+                         listing?.biz_city && listing?.biz_zip && listing?.service_areas);
+  const hasListing  = (svcCount || 0) > 0;
+  const setupDone   = detailsDone && hasListing && isApproved;
 
   const Metric = ({ label, value, sub, accent }) => (
     <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14,
@@ -957,13 +967,15 @@ function VendorDashboard({ user, onLogout }) {
     </div>
   );
 
-  const TABS = [["overview","Overview"],["requests","Requests"],["inquiries","Messages"],["listing","My listing"],
+  const TABS = [["overview","Overview"],["requests","Requests"],["inquiries","Messages"],
+                ["listings","My listings"],["business","Business profile"],
                 ["reviews","Reviews"],["calendar","Availability"],["notifs","Notifications"],
                 ["account","Account settings"]];
 
   return (
     <div className="plug" style={{ minHeight:"100vh", background:"#F7F8FA" }}>
       <style>{GLOBAL_CSS}</style>
+      {showGuide && <InfoPageModal page="Vendor guide" onClose={()=>setShowGuide(false)} />}
 
       {/* Vendor header — no marketplace nav, no other vendors */}
       <div style={{ background:"#fff", borderBottom:`1px solid ${C.border}`,
@@ -981,6 +993,11 @@ function VendorDashboard({ user, onLogout }) {
           <span style={{ fontSize:13, fontWeight:700 }}>
             {listing?.business_name || user.name || "My business"}
           </span>
+          <button onClick={()=>setShowGuide(true)} className="btn"
+            style={{ border:`1px solid ${C.border}`, background:"#fff", borderRadius:9,
+                     padding:"6px 12px", fontSize:12, fontWeight:700, color:C.black }}>
+            📘 Vendor guide
+          </button>
           <button onClick={onLogout} className="btn"
             style={{ border:`1px solid ${C.border}`, background:"#fff", borderRadius:9,
                      padding:"6px 12px", fontSize:12, fontWeight:700, color:C.midGray }}>
@@ -991,39 +1008,55 @@ function VendorDashboard({ user, onLogout }) {
 
       <div style={{ maxWidth:1000, margin:"0 auto", padding:"18px 16px 60px" }}>
 
-        {/* Status banner */}
-        {!isApproved && (
-          <div style={{ background:"#FFFBEB", border:"1px solid #FCD34D", borderRadius:12,
-                        padding:"13px 15px", marginBottom:14 }}>
-            <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#92400E" }}>
-              ✓ Profile created — ⏳ under review
+        {/* SETUP CHECKLIST — shown until the vendor is approved and has a
+            listing. Replaces two banners that each described a different
+            "Step 2", and a "Complete my listing" button that opened the
+            business editor rather than a listing. */}
+        {svcCount !== null && !setupDone && (
+          <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14,
+                        padding:"16px 18px", marginBottom:14 }}>
+            <p style={{ margin:0, fontSize:15, fontWeight:800 }}>Get your business live on PLUG</p>
+            <p style={{ margin:"3px 0 12px", fontSize:12, color:C.midGray }}>
+              Three steps. Your listings go live as soon as step 3 is done.{" "}
+              <span onClick={()=>setShowGuide(true)} style={{ color:C.orange, fontWeight:700, cursor:"pointer" }}>
+                Read the vendor guide
+              </span>
             </p>
-            <p style={{ margin:"4px 0 9px", fontSize:12, color:"#B45309", lineHeight:1.6 }}>
-              <strong>Step 2: add your listings.</strong> A listing is one service customers can
-              book — a venue, a taco truck, a DJ set. Add as many as you offer. They go live
-              the moment your business is approved.
-            </p>
-            <button onClick={()=>setTab("listing")} className="btn"
-              style={{ padding:"8px 15px", borderRadius:9, border:"none", background:"#92400E",
-                       color:"#fff", fontSize:12, fontWeight:800, cursor:"pointer" }}>
-              + Add my first listing
-            </button>
-          </div>
-        )}
-        {isApproved && !listingComplete && (
-          <div style={{ background:"#EFF6FF", border:"1px solid #BFDBFE", borderRadius:12,
-                        padding:"12px 14px", marginBottom:14 }}>
-            <p style={{ margin:0, fontSize:13, fontWeight:800, color:"#1E40AF" }}>
-              Step 2: add your listings to get booked
-            </p>
-            <p style={{ margin:"4px 0 6px", fontSize:12, color:"#1D4ED8" }}>
-              Listings with a description and photos get far more requests.
-            </p>
-            <button onClick={()=>setEditing(true)} className="btn"
-              style={{ background:C.black, color:"#fff", border:"none", borderRadius:8,
-                       padding:"7px 12px", fontSize:12, fontWeight:700 }}>
-              Complete my listing
-            </button>
+            {[
+              { done: detailsDone, n: 1, title: "Add your business details",
+                text: "Name, a short description, phone, city and where you work. This is what we review.",
+                cta: "Add business details", go: () => setEditing(true) },
+              { done: hasListing, n: 2, title: "Create your first listing",
+                text: "One listing per service you offer — a DJ set, a taco truck, a venue. Each has its own price, photos and availability.",
+                cta: "Create a listing", go: () => setTab("listings") },
+              { done: isApproved, n: 3, title: "PLUG approves your business",
+                text: isApproved ? "Approved — you're live." :
+                      detailsDone ? "We're reviewing your details, usually within 1–2 business days. You'll get a notification here." :
+                                    "Starts once your business details are in.",
+                cta: null },
+            ].map(st => (
+              <div key={st.n} style={{ display:"flex", gap:12, alignItems:"flex-start",
+                                       padding:"10px 0", borderTop:`1px solid ${C.border}` }}>
+                <span style={{ width:26, height:26, borderRadius:99, flexShrink:0, display:"flex",
+                               alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800,
+                               background: st.done ? C.green : "#F3F4F6", color: st.done ? "#fff" : C.midGray }}>
+                  {st.done ? "✓" : st.n}
+                </span>
+                <div style={{ flex:1 }}>
+                  <p style={{ margin:0, fontSize:13, fontWeight:800,
+                              color: st.done ? C.midGray : C.black,
+                              textDecoration: st.done ? "line-through" : "none" }}>{st.title}</p>
+                  <p style={{ margin:"2px 0 0", fontSize:12, color:C.midGray, lineHeight:1.5 }}>{st.text}</p>
+                </div>
+                {!st.done && st.cta && (
+                  <button onClick={st.go} className="btn"
+                    style={{ background:C.orange, color:"#fff", border:"none", borderRadius:9,
+                             padding:"8px 13px", fontSize:12, fontWeight:800, whiteSpace:"nowrap" }}>
+                    {st.cta}
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
         {err && (
@@ -1066,8 +1099,8 @@ function VendorDashboard({ user, onLogout }) {
                   <Metric label="RATING"       value={listing?.rating ? Number(listing.rating).toFixed(1) : "—"}
                     sub={revs.length ? `read ${revs.length} review${revs.length===1?"":"s"}` : "from reviews"} accent="#F59E0B" />
                 </div>
-                <div onClick={()=>setTab("listing")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Edit your listings & photos">
-                  <Metric label="PHOTOS"       value={(listing?.photos||[]).length} sub="tap to manage" />
+                <div onClick={()=>setTab("listings")} style={{ cursor:"pointer", flex:"1 1 140px" }} title="Your listings">
+                  <Metric label="LISTINGS"     value={svcCount ?? "—"} sub="tap to manage" />
                 </div>
               </div>
 
@@ -1228,54 +1261,63 @@ function VendorDashboard({ user, onLogout }) {
             </div>
           )}
 
-          {/* MY LISTING */}
-          {tab === "listing" && (
+          {/* MY LISTINGS — what you sell. Each listing has its own service,
+              description, price, capacity, photos and availability. */}
+          {tab === "listings" && (
             <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>My listing</h3>
+              <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>My listings</h3>
+              <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray, lineHeight:1.55 }}>
+                A listing is one service hosts can book. Offer a DJ set and a photo booth? That's two
+                listings — each with its own price, photos and availability.
+                {!isApproved && " They go live when PLUG approves your business."}
+              </p>
+              <ServicesManager vendorId={user.id} />
+            </div>
+          )}
+
+          {/* BUSINESS PROFILE — who you are. Nothing here repeats a listing field. */}
+          {tab === "business" && (
+            <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:10 }}>
+                <div>
+                  <h3 style={{ margin:0, fontSize:14, fontWeight:800 }}>Business profile</h3>
+                  <p style={{ margin:"2px 0 0", fontSize:12, color:C.midGray }}>Who you are. Your listings say what you sell.</p>
+                </div>
                 <button onClick={()=>setEditing(true)} className="btn"
                   style={{ background:C.black, color:"#fff", border:"none", borderRadius:9,
-                           padding:"8px 14px", fontSize:12, fontWeight:700 }}>
-                  Edit business info
+                           padding:"8px 14px", fontSize:12, fontWeight:700, whiteSpace:"nowrap" }}>
+                  Edit business details
                 </button>
               </div>
               {(listing?.photos || []).length > 0 && (
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
                   {listing.photos.slice(0,6).map((u,i)=>(
-                    <img key={i} src={u} alt={"Listing photo " + (i+1)}
+                    <img key={i} src={u} alt={"Business photo " + (i+1)}
                       style={{ width:84, height:84, objectFit:"cover", borderRadius:9,
                                border:`1px solid ${C.border}` }} />
                   ))}
                 </div>
               )}
-              {[["Business", listing?.business_name],
-                ["Service", listing?.service_type],
-                ["Description", listing?.description],
-                ["Starting price", listing?.price_value != null ? ("$" + listing.price_value) : "Contact for pricing"],
-                ["Capacity", listing?.capacity],
-                ["Years in business", listing?.years_in_biz],
-                ["Travel radius", listing?.travel_miles ? listing.travel_miles + " mi" : null],
-                ["Service areas", listing?.service_areas],
-                ["Availability", listing?.schedule],
-              ].map(([k,v]) => (
+              {[["Business name", listing?.business_name, true],
+                ["About", listing?.description, true],
+                ["Business phone", listing?.biz_phone, true],
+                ["City / ZIP", [listing?.biz_city, listing?.biz_zip].filter(Boolean).join(" ") || null, true],
+                ["Where you work", listing?.service_areas, true],
+                ["Years in business", listing?.years_in_biz, false],
+                ["Legal business name", listing?.biz_legal, false],
+                ["License / permit", listing?.biz_license, false],
+                ["Website", listing?.biz_website, false],
+              ].map(([k,v,req]) => (
                 <div key={k} style={{ display:"flex", justifyContent:"space-between", gap:12,
                                       padding:"8px 0", borderTop:`1px solid ${C.border}` }}>
                   <span style={{ fontSize:12, color:C.midGray, fontWeight:600 }}>{k}</span>
-                  <span style={{ fontSize:12, fontWeight:700, textAlign:"right", maxWidth:320 }}>
-                    {v || <span style={{ color:"#DC2626" }}>Not set</span>}
+                  <span style={{ fontSize:12, fontWeight:700, textAlign:"right", maxWidth:360 }}>
+                    {(v || v === 0) ? v : (req
+                      ? <span style={{ color:"#DC2626" }}>Needed</span>
+                      : <span style={{ color:C.lightGray, fontWeight:500 }}>—</span>)}
                   </span>
                 </div>
               ))}
-
-              {/* All of this vendor's listings — add / edit each independently */}
-              <div style={{ marginTop:18, paddingTop:16, borderTop:`2px solid ${C.border}` }}>
-                <h3 style={{ margin:"0 0 4px", fontSize:14, fontWeight:800 }}>My listings</h3>
-                <p style={{ margin:"0 0 12px", fontSize:12, color:C.midGray, lineHeight:1.55 }}>
-                  Add as many listings as you offer — each shows up as its own listing to customers
-                  (e.g. a taco truck, a dessert truck, a DJ set). Give each one options or add-ons too.
-                </p>
-                <ServicesManager vendorId={user.id} />
-              </div>
             </div>
           )}
 
