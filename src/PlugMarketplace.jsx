@@ -4172,11 +4172,11 @@ function AuthModal({ onClose, onAuth }) {
             <div style={{ background:"#F0F9FF", borderRadius:10, padding:"11px 14px",
                           marginBottom:16, border:"1px solid #BAE6FD", textAlign:"left" }}>
               <p style={{ margin:0, fontSize:11, fontWeight:700, color:"#075985" }}>
-                Your application is saved
+                Next: your dashboard
               </p>
               <p style={{ margin:"4px 0 0", fontSize:11, color:"#0369A1", lineHeight:1.55 }}>
-                Add your photos from your dashboard once you've confirmed — listings
-                with photos get far more requests.
+                Once you confirm, it walks you through your business details and your
+                first listing. That's all PLUG needs to approve you.
               </p>
             </div>
           )}
@@ -10572,7 +10572,7 @@ export function EmailLinkScreen({ link, onSession, onFinish, onRequestNew }) {
     body = recovery
       ? "Your new password is saved and you're signed in."
       : vendor
-        ? "You're signed in. Your business profile is now under review — we'll let you know as soon as it's approved. You can start adding your listings now."
+        ? "You're signed in. Your dashboard walks you through two quick things — your business details and your first listing — and then PLUG approves you."
         : "You're signed in and ready to start planning your event.";
     action = (
       <button style={primary} onClick={onFinish}>
