@@ -1462,6 +1462,32 @@ export const sb = (() => {
     } catch(e) { return { data: null, error: e }; }
   }
 
+  /* Exchange a one-time token hash from an email for a session.
+
+     This is a POST, and that is the entire point. The old flow put Supabase's
+     GET /verify URL straight in the email, and a GET is something any machine
+     will do to a link just by looking at it: Outlook, Gmail and most corporate
+     mail filters fetch every URL in an incoming message to scan it. The token
+     is single use, so the scanner spent it and the person who actually clicked
+     got "Email link is invalid or has expired". It was worst for Hotmail and
+     Outlook addresses, where the scan is unconditional.
+
+     Now the email points at my-plug.com/auth/confirm. A scanner fetching that
+     loads a page with a button on it and nothing happens. The token is only
+     spent when a human presses the button and this POST runs. */
+  async function verifyTokenHash(type, tokenHash) {
+    if (IS_PREVIEW) return { data: null, error: { message: "Not available in preview mode." } };
+    try {
+      const res = await fetch(SUPABASE_URL + "/auth/v1/verify", {
+        method: "POST", headers,
+        body: JSON.stringify({ type, token_hash: tokenHash }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return { data: null, error: d.error_description || d.msg || d.error || { message: "This link is no longer valid." } };
+      return { data: d, error: null };
+    } catch (e) { return { data: null, error: e }; }
+  }
+
   /* Set a new password using the recovery access token from the email link. */
   async function updateUserPassword(recoveryToken, newPassword) {
     if (IS_PREVIEW) return { data: null, error: { message: "Not available in preview mode." } };
@@ -1540,7 +1566,7 @@ export const sb = (() => {
     } catch (e) { return { data: null, error: e }; }
   }
 
-  return { rest, rpc, signUp, signIn, signOut, getUser, from, channel, setAuth, getAuthToken, recover, updateUserPassword };
+  return { rest, rpc, signUp, signIn, signOut, getUser, from, channel, setAuth, getAuthToken, recover, updateUserPassword, verifyTokenHash };
 })();
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -10581,6 +10607,88 @@ function DashboardLoading({ label }) {
   );
 }
 
+/* ── EMAIL LINK LANDING PAGE ──────────────────────────────────────────────
+   Where confirmation and password-reset emails now land: my-plug.com, not
+   Supabase. Nothing happens until the button is pressed.
+
+   That button is not decoration. Mail providers fetch every link in an
+   incoming message to scan it — Outlook and Hotmail always, Gmail and most
+   corporate filters often — and the old emails linked straight to Supabase's
+   single-use GET endpoint, so the scanner spent the token and the person got
+   "this link has expired". A page that does nothing until clicked is immune:
+   scanners load pages, they do not press buttons.
+
+   Read the parameters from the query string, not the hash, because that is
+   where Supabase puts token_hash and because the hash never reaches a server
+   if the flow ever needs one. */
+export function EmailLinkScreen({ type, tokenHash, onSession, onFailed }) {
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState("");
+
+  const recovery = type === "recovery";
+  const title    = recovery ? "Reset your password" : "Confirm your email";
+  const blurb    = recovery
+    ? "Press continue and you can choose a new password."
+    : "One tap and your PLUG account is ready to use.";
+  const cta      = recovery ? "Continue" : "Confirm my email";
+
+  async function go() {
+    setBusy(true); setErr("");
+    const { data, error } = await sb.verifyTokenHash(type, tokenHash);
+    setBusy(false);
+    if (error || !data?.access_token) {
+      setErr(typeof error === "string" ? error
+        : (error?.message || "This link is no longer valid. Please request a new one."));
+      return;
+    }
+    onSession(data);
+  }
+
+  return (
+    <div style={{
+      minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
+      background:"linear-gradient(135deg, #0A0A0A 0%, #1A1A2E 100%)",
+      color:"#fff", padding:"24px", textAlign:"center",
+      font:"16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif",
+    }}>
+      <div style={{ maxWidth:420, width:"100%" }}>
+        <div style={{ marginBottom:30 }}><PlugMark size={48} light /></div>
+
+        <h1 style={{ fontSize:24, fontWeight:800, letterSpacing:"-0.02em", margin:"0 0 10px" }}>
+          {title}
+        </h1>
+        <p style={{ margin:"0 0 26px", color:"rgba(255,255,255,0.72)", fontSize:15 }}>
+          {blurb}
+        </p>
+
+        <button
+          onClick={go}
+          disabled={busy}
+          style={{
+            width:"100%", maxWidth:300, border:"none", borderRadius:999,
+            padding:"14px 24px", fontSize:15, fontWeight:800, color:"#fff",
+            background:"linear-gradient(135deg, #FF5C28 0%, #FF8C00 100%)",
+            cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1,
+          }}
+        >{busy ? "Just a moment…" : cta}</button>
+
+        {err && (
+          <div style={{ marginTop:20, color:"#FCA5A5", fontSize:14 }}>
+            {err}
+            <div style={{ marginTop:12 }}>
+              <button
+                onClick={onFailed}
+                style={{ background:"none", border:"none", color:"rgba(255,255,255,0.55)",
+                         textDecoration:"underline", cursor:"pointer", fontSize:13 }}
+              >Go to PLUG</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── MAINTENANCE SCREEN ───────────────────────────────────────────────────
    What a visitor sees while the site is switched off. Deliberately a real
    page rather than an empty marketplace: "we're working on it" is information,
@@ -10703,6 +10811,8 @@ export default function PlugApp() {
   const [authModal, setAuthModal] = useState(false);
   /* Password-recovery: set when arriving via a Supabase recovery email link */
   const [recoveryToken, setRecoveryToken] = useState(null);
+  /* Set when the page was opened from a confirmation or reset email. */
+  const [emailLink, setEmailLink] = useState(null);
 
   /* ── MAINTENANCE MODE ──
      Starts at false — assume open — rather than null. Starting at "unknown"
@@ -11154,6 +11264,36 @@ export default function PlugApp() {
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshVendors]);
 
+  /* Arriving from a confirmation or password-reset email:
+     /auth/confirm?token_hash=...&type=signup|recovery|email|invite
+
+     The token is read and then wiped from the URL immediately. Leaving it in
+     the address bar would put a credential in browser history, in the
+     referrer of anything the page loads next, and in whatever the person
+     pastes when they ask for help with it. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search || "");
+    const th = q.get("token_hash");
+    const ty = q.get("type");
+    if (!th || !ty) return;
+    if (!["signup", "recovery", "email", "email_change", "invite", "magiclink"].includes(ty)) return;
+    setEmailLink({ type: ty, tokenHash: th });
+    try { window.history.replaceState(null, "", "/"); } catch { /* older browser */ }
+  }, []);
+
+  async function onEmailLinkSession(session) {
+    const ty = emailLink?.type;
+    setEmailLink(null);
+    /* Recovery hands the existing reset screen a token and gets out of the
+       way, rather than signing the person in and leaving them to find the
+       change-password form themselves. */
+    if (ty === "recovery") { setRecoveryToken(session.access_token); return; }
+    await saveSession(session);
+    const u = await getCurrentUser();
+    if (u) setUser(sanitizeUser(u));
+  }
+
   /* Detect a password-recovery link (#access_token=...&type=recovery) on mount.
      If present, capture the token and show the reset screen instead of the
      normal app session restore. */
@@ -11524,6 +11664,25 @@ export default function PlugApp() {
   }
 
   const recs = useMemo(() => getRecommendations(cart, activePackage, VENDORS), [cart, activePackage]);
+
+  /* ── EMAIL LINK ──────────────────────────────────────────────────────────
+     Ahead of the maintenance gate on purpose: confirming an address you
+     already own, or finishing a reset you already started, is not browsing
+     the marketplace. Someone who signed up before the site was switched off
+     should still be able to finish the thing they were told to finish. */
+  if (emailLink) {
+    return (
+      <>
+        <style>{GLOBAL_CSS}</style>
+        <EmailLinkScreen
+          type={emailLink.type}
+          tokenHash={emailLink.tokenHash}
+          onSession={onEmailLinkSession}
+          onFailed={() => setEmailLink(null)}
+        />
+      </>
+    );
+  }
 
   /* ── MAINTENANCE GATE ────────────────────────────────────────────────────
      Placed after every hook in this component and before the vendor routing,
