@@ -115,7 +115,7 @@ app.use(helmet({
 
 /* Admin moderation console: every user and vendor, with actions. */
 
-function AdminAccounts({ adminId }) {
+function AdminAccounts({ adminId, onChanged }) {
   const [rows, setRows]     = useState([]);
   const [loading, setLoad]  = useState(true);
   const [q, setQ]           = useState("");
@@ -152,6 +152,9 @@ function AdminAccounts({ adminId }) {
     if (res && res.ok === false) { setErr(res.error || "Action failed."); return; }
     flash(what === "delete" ? "Account deleted." : "Done.");
     load();
+    /* Keep the Vendors tab and its pending badge in step with what was just
+       done here. */
+    if (onChanged) onChanged();
   }
 
   async function sendMsg() {
@@ -338,7 +341,12 @@ function AdminPanel({ user, onClose }) {
   const origin = (typeof window !== "undefined" ? window.location.origin : "") || "null";
   const originOk = isOriginAllowed(origin);
 
-  useEffect(() => { getVendorApps().then(setVendorApps); }, []);
+  /* Re-read on every tab switch, not only when the panel opens. The Accounts
+     tab can approve or reject a vendor too, and the Vendors tab used to keep
+     showing that vendor as pending — badge and all — until the whole panel
+     was closed and reopened. */
+  const refreshVendorApps = React.useCallback(() => getVendorApps().then(setVendorApps), []);
+  useEffect(() => { refreshVendorApps(); }, [atab, refreshVendorApps]);
 
   async function handleAction(vendorId, action) {
     setBusy(true);
@@ -427,7 +435,7 @@ function AdminPanel({ user, onClose }) {
         <div style={{ flex:1, overflowY:"auto", padding:"20px 26px" }}>
 
           {/* ── VENDOR APPLICATIONS ── */}
-          {atab === "accounts" && <AdminAccounts adminId={user.id} />}
+          {atab === "accounts" && <AdminAccounts adminId={user.id} onChanged={refreshVendorApps} />}
           {atab === "messages" && <MessagesPanel user={user} isAdmin />}
 
           {atab === "vendors" && (

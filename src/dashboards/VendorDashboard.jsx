@@ -896,8 +896,9 @@ function VendorDashboard({ user, onLogout }) {
     onLogout();
   }
 
-  const reload = React.useCallback(async () => {
-    setLoading(true);
+  const reload = React.useCallback(async (opts) => {
+    /* quiet: background re-checks must not flash the loading state. */
+    if (!(opts && opts.quiet)) setLoading(true);
     const [r, l, n, rv] = await Promise.all([
       RLS.getMyRequests(user).catch(()=>[]),
       getMyListing(user.id).catch(()=>null),
@@ -912,6 +913,18 @@ function VendorDashboard({ user, onLogout }) {
   }, [user]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  /* Approval happens in someone else's browser. Without this the vendor kept
+     seeing "under review" until they happened to reload the page, so an
+     approval looked like it had not happened. Re-check when they come back to
+     the tab, and once a minute while they are still waiting. */
+  const waitingForApproval = (listing?.verification_status || user.status) !== "approved";
+  useEffect(() => {
+    const onFocus = () => reload({ quiet: true });
+    window.addEventListener("focus", onFocus);
+    const t = waitingForApproval ? setInterval(() => reload({ quiet: true }), 60000) : null;
+    return () => { window.removeEventListener("focus", onFocus); if (t) clearInterval(t); };
+  }, [reload, waitingForApproval]);
 
   async function respond(reqId, status) {
     setBusyId(reqId); setErr("");
