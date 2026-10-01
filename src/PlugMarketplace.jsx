@@ -1408,8 +1408,28 @@ export const sb = (() => {
         method: "POST", headers,
         body: JSON.stringify(body),
       });
-      const d = await res.json();
-      return { data: d, error: d.error || null };
+      const d = await res.json().catch(() => ({}));
+
+      /* Errors come back as { code, error_code, msg } — there is no `error`
+         field — so the old `error: d.error || null` reported every failure as
+         a success with no user in it, which the form then showed as the
+         generic "Signup failed". Read the real message. */
+      if (!res.ok) {
+        return { data: null, error: {
+          message: d.msg || d.error_description || d.message || d.error || "Signup failed. Please try again.",
+          code: d.error_code || d.code || res.status,
+        } };
+      }
+
+      /* With email confirmation ON, a successful signup returns the bare user
+         object ({ id, email, identities, ... }) — no session and no `user`
+         wrapper. Only with confirmation off does it return { user, session }.
+         The form checked authData.user, found nothing, and told every person
+         who had just signed up successfully that signup had failed. They
+         pressed it again, hit the 60-second resend limit, and concluded that
+         signup was broken. It was the message that was broken. */
+      const user = d.user || (d.id ? d : null);
+      return { data: { user, session: d.access_token ? d : null }, error: null };
     } catch(e) { return { data: null, error: e }; }
   }
 
@@ -4024,6 +4044,26 @@ function AuthModal({ onClose, onAuth }) {
       track("signup_started", { role });
       const { data: authData, error: signUpError } = await sb.signUp(
         form.email, form.password, meta, tsToken || null);
+      /* Supabase refuses a second confirmation email to the same address
+         within 60 seconds. The first one was sent, so the account exists and
+         the email is on its way. Showing the raw "For security purposes, you
+         can only request this after 43 seconds" made people think signup had
+         failed, when it had worked; send them to the check-your-email screen
+         instead, which is the truth. */
+      const rateLimited = /only request this after|over_email_send_rate_limit/i
+        .test(String(signUpError?.message || "") + " " + String(signUpError?.code || ""));
+      if (rateLimited) { setVerifyPhase("email"); setLoading(false); return; }
+
+      /* An address that already has a CONFIRMED account comes back as a 200
+         with an empty identities list and no email is sent — Supabase does
+         that so the form cannot be used to find out who has an account. Left
+         alone, the person was told to check an inbox that would stay empty. */
+      if (!signUpError && authData?.user && Array.isArray(authData.user.identities)
+          && authData.user.identities.length === 0) {
+        setErr("An account with this email already exists. Log in instead, or use Forgot password? if you don't remember it.");
+        setLoading(false); return;
+      }
+
       if (signUpError || !authData?.user) {
         setErr(signUpError?.message || "Signup failed. Please try again.");
         /* A Turnstile token is single-use. Whatever the failure was, the old
