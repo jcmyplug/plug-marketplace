@@ -11294,7 +11294,9 @@ export default function PlugApp() {
   useEffect(() => {
     if (!emailLink || typeof window === "undefined") return;
     try { window.history.replaceState(null, "", "/"); } catch { /* older browser */ }
-  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+    /* Empty deps on purpose: emailLink is captured at first render and this
+       only ever needs to run against that first value. */
+  }, []);
 
   async function onEmailLinkSession(session) {
     const ty = emailLink?.type;
