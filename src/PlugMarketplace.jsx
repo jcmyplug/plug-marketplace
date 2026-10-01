@@ -2762,7 +2762,7 @@ async function getVendorRequests(vendorId) {
 
   return rows.map(r => ({
     id: r.id, userId: r.user_id, vendorId: r.vendor_id,
-    userName: nameById[r.user_id] || "Customer",
+    userName: nameById[r.user_id] || "Host",
     eventType: r.event_type, eventDate: r.event_date,
     guests: r.guests, venue: r.venue, message: r.message,
     venueType: r.venue_type, streetAddress: r.street_address,
@@ -3089,14 +3089,36 @@ function track(event, props) {
    declared earlier, so it runs first and takes the query string with it. An
    effect reading window.location.search afterwards finds an empty string and
    the link silently does nothing. Render happens before any of that. */
+const EMAIL_LINK_TYPES = ["signup", "recovery", "email", "email_change", "invite", "magiclink"];
 function readEmailLinkFromUrl() {
   if (typeof window === "undefined") return null;
+
+  /* Current emails: /auth/confirm?token_hash=...&type=... */
   const q  = new URLSearchParams(window.location.search || "");
   const th = q.get("token_hash");
   const ty = q.get("type");
-  if (!th || !ty) return null;
-  if (!["signup", "recovery", "email", "email_change", "invite", "magiclink"].includes(ty)) return null;
-  return { type: ty, tokenHash: th };
+  if (th && EMAIL_LINK_TYPES.includes(ty)) return { type: ty, tokenHash: th };
+
+  /* Emails sent before the switch, and anything Supabase redirects itself,
+     put the result in the hash instead. Two shapes:
+       #access_token=...&refresh_token=...&type=signup|recovery  (it worked)
+       #error=...&error_code=otp_expired&error_description=...    (it didn't)
+     Both used to be thrown away by the "URL follows the view" effect before
+     anything read them, so the person landed on the homepage with no idea
+     whether their link had done anything — which is exactly what they
+     reported. */
+  const h = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+  if (h.get("error_code") || h.get("error")) {
+    const d = (h.get("error_description") || "").replace(/\+/g, " ");
+    return { type: h.get("type") || "signup",
+             error: d ? d.charAt(0).toUpperCase() + d.slice(1) + "." : "This link has expired or was already used." };
+  }
+  const at = h.get("access_token");
+  const ht = h.get("type");
+  if (at && EMAIL_LINK_TYPES.includes(ht)) {
+    return { type: ht, accessToken: at, refreshToken: h.get("refresh_token") || null };
+  }
+  return null;
 }
 
 function parsePath(p) {
@@ -3575,10 +3597,10 @@ export async function getVendorInquiries(vendorId) {
   const names = {};
   if (ids.length) {
     const { data: profs } = await sb.from("profiles").select("id, display_name, full_name").in("id", ids).get();
-    (profs || []).forEach(p => { names[p.id] = p.display_name || p.full_name || "Customer"; });
+    (profs || []).forEach(p => { names[p.id] = p.display_name || p.full_name || "Host"; });
   }
   return (data || []).map(r => ({
-    id: r.id, userId: r.user_id, userName: names[r.user_id] || "Customer",
+    id: r.id, userId: r.user_id, userName: names[r.user_id] || "Host",
     serviceName: r.service_name, body: r.body, reply: r.reply,
     replyAt: r.reply_at, createdAt: r.created_at,
   }));
@@ -4249,7 +4271,7 @@ function AuthModal({ onClose, onAuth }) {
                           padding:"16px 20px", marginBottom:18, textAlign:"left" }}>
               <p style={{ margin:0, fontSize:9, fontWeight:800, color:C.midGray,
                           textTransform:"uppercase", letterSpacing:"0.1em" }}>
-                Your {created.type==="vendor" ? "Vendor" : created.type==="admin" ? "Admin" : "User"} ID — save this
+                Your {created.type==="vendor" ? "Vendor" : created.type==="admin" ? "Admin" : "Host"} ID — save this
               </p>
               <p style={{ margin:"7px 0 0", fontFamily:"monospace", fontSize:21, fontWeight:800,
                           letterSpacing:"0.07em", color:C.black }}>{created.id}</p>
@@ -4762,7 +4784,7 @@ function AuthModal({ onClose, onAuth }) {
             <div>
               <p style={{ fontSize:11, fontWeight:600, color:C.midGray, marginBottom:8 }}>I am a…</p>
               <div style={{ display:"flex", gap:7 }}>
-                {[["user","👤","Event Host"],["vendor","🏪","Vendor"],["admin","🛡️","Admin"]].map(([r,em,label])=>(
+                {[["user","👤","Host"],["vendor","🏪","Vendor"],["admin","🛡️","Admin"]].map(([r,em,label])=>(
                   <button key={r} onClick={()=>{setRole(r);setStep(1);}} className="btn"
                     style={{ flex:1, padding:"9px 6px", borderRadius:12,
                              border:`2px solid ${role===r ? C.orange : C.border}`,
@@ -10679,27 +10701,134 @@ function DashboardLoading({ label }) {
    Read the parameters from the query string, not the hash, because that is
    where Supabase puts token_hash and because the hash never reaches a server
    if the flow ever needs one. */
-export function EmailLinkScreen({ type, tokenHash, onSession, onFailed }) {
-  const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState("");
+export function EmailLinkScreen({ link, onSession, onFinish, onRequestNew }) {
+  const recovery = link.type === "recovery";
+  const [stage, setStage] = useState(link.error ? "error" : "ready");   // ready | done | error
+  const [busy,  setBusy]  = useState(false);
+  const [err,   setErr]   = useState(link.error || "");
+  const [pw,    setPw]    = useState("");
+  const [pw2,   setPw2]   = useState("");
+  const [who,   setWho]   = useState(null);
 
-  const recovery = type === "recovery";
-  const title    = recovery ? "Reset your password" : "Confirm your email";
-  const blurb    = recovery
-    ? "Press continue and you can choose a new password."
-    : "One tap and your PLUG account is ready to use.";
-  const cta      = recovery ? "Continue" : "Confirm my email";
-
-  async function go() {
-    setBusy(true); setErr("");
-    const { data, error } = await sb.verifyTokenHash(type, tokenHash);
-    setBusy(false);
-    if (error || !data?.access_token) {
-      setErr(typeof error === "string" ? error
-        : (error?.message || "This link is no longer valid. Please request a new one."));
-      return;
+  /* Old-style links (from emails sent before 30 Sep) arrive with the session
+     already in the URL: Supabase confirmed the address before redirecting.
+     Nothing to press for a signup — sign them in and say so. */
+  useEffect(() => {
+    if (link.accessToken && !recovery) {
+      (async () => {
+        const u = await onSession({ access_token: link.accessToken, refresh_token: link.refreshToken });
+        setWho(u); setStage("done");
+      })();
     }
-    onSession(data);
+  }, []);
+
+  async function getSession() {
+    if (link.accessToken) return { access_token: link.accessToken, refresh_token: link.refreshToken };
+    const { data, error } = await sb.verifyTokenHash(link.type, link.tokenHash);
+    if (error || !data?.access_token) {
+      throw new Error(typeof error === "string" ? error
+        : (error?.message || "This link has expired or was already used."));
+    }
+    return data;
+  }
+
+  async function confirm() {
+    setBusy(true); setErr("");
+    try {
+      const session = await getSession();
+      const u = await onSession(session);
+      setWho(u); setStage("done");
+    } catch (e) { setErr(e.message); setStage("error"); }
+    setBusy(false);
+  }
+
+  async function savePassword() {
+    setErr("");
+    if (pw.length < 12) { setErr("Password must be at least 12 characters."); return; }
+    if (!/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw) || !/[^A-Za-z0-9]/.test(pw))
+      { setErr("Use a lowercase letter, an uppercase letter, a number and a symbol (like ! ? # $)."); return; }
+    if (pw !== pw2) { setErr("The two passwords don't match."); return; }
+    setBusy(true);
+    try {
+      /* The token is only spent here, on a human pressing Save — never on load. */
+      const session = await getSession();
+      const { error } = await sb.updateUserPassword(session.access_token, pw);
+      if (error) throw new Error(error.message || "Could not save the new password.");
+      const u = await onSession(session);
+      setWho(u); setStage("done");
+    } catch (e) {
+      const expired = /expired|invalid|already/i.test(e.message);
+      setErr(e.message);
+      if (expired) setStage("error");
+    }
+    setBusy(false);
+  }
+
+  const field = {
+    width:"100%", padding:"13px 14px", borderRadius:12, border:"1px solid rgba(255,255,255,0.18)",
+    background:"rgba(255,255,255,0.06)", color:"#fff", fontSize:15, marginBottom:10,
+    boxSizing:"border-box", outline:"none",
+  };
+  const primary = {
+    width:"100%", border:"none", borderRadius:999, padding:"14px 24px", fontSize:15,
+    fontWeight:800, color:"#fff", background:"linear-gradient(135deg, #FF5C28 0%, #FF8C00 100%)",
+    cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1,
+  };
+  const quiet = {
+    marginTop:14, background:"none", border:"none", color:"rgba(255,255,255,0.6)",
+    textDecoration:"underline", cursor:"pointer", fontSize:13,
+  };
+
+  let title, body, action;
+  if (stage === "error") {
+    title = "This link didn't work";
+    body = (err || "This link has expired or was already used.") +
+      " Links stop working after 10 minutes, and each one works only once. Request a new one and use the newest email.";
+    action = (
+      <>
+        <button style={primary} onClick={onRequestNew}>
+          {recovery ? "Send me a new reset link" : "Log in / Sign up"}
+        </button>
+        <button style={quiet} onClick={onFinish}>Go to PLUG</button>
+      </>
+    );
+  } else if (stage === "done") {
+    const vendor = who?.type === "vendor";
+    title = recovery ? "Password updated" : "Email confirmed";
+    body = recovery
+      ? "Your new password is saved and you're signed in."
+      : vendor
+        ? "You're signed in. Your business profile is now under review — we'll let you know as soon as it's approved. You can start adding your listings now."
+        : "You're signed in and ready to start planning your event.";
+    action = (
+      <button style={primary} onClick={onFinish}>
+        {vendor ? "Go to my dashboard" : "Continue to PLUG"}
+      </button>
+    );
+  } else if (recovery) {
+    title = "Choose a new password";
+    body = "At least 12 characters, with an uppercase letter, a lowercase letter, a number and a symbol.";
+    action = (
+      <>
+        <input type="password" placeholder="New password" value={pw} autoFocus
+          onChange={e=>{ setPw(e.target.value); setErr(""); }} style={field} />
+        <input type="password" placeholder="Confirm new password" value={pw2}
+          onChange={e=>{ setPw2(e.target.value); setErr(""); }}
+          onKeyDown={e=>{ if (e.key === "Enter") savePassword(); }} style={field} />
+        {err && <div style={{ color:"#FCA5A5", fontSize:13, margin:"2px 0 12px" }}>{err}</div>}
+        <button style={primary} disabled={busy} onClick={savePassword}>
+          {busy ? "Saving…" : "Save new password"}
+        </button>
+      </>
+    );
+  } else {
+    title = "Confirm your email";
+    body = "One tap and your PLUG account is ready to use.";
+    action = (
+      <button style={primary} disabled={busy} onClick={confirm}>
+        {busy ? "Confirming…" : "Confirm my email"}
+      </button>
+    );
   }
 
   return (
@@ -10709,39 +10838,12 @@ export function EmailLinkScreen({ type, tokenHash, onSession, onFailed }) {
       color:"#fff", padding:"24px", textAlign:"center",
       font:"16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif",
     }}>
-      <div style={{ maxWidth:420, width:"100%" }}>
-        <div style={{ marginBottom:30 }}><PlugMark size={48} light /></div>
-
-        <h1 style={{ fontSize:24, fontWeight:800, letterSpacing:"-0.02em", margin:"0 0 10px" }}>
-          {title}
-        </h1>
-        <p style={{ margin:"0 0 26px", color:"rgba(255,255,255,0.72)", fontSize:15 }}>
-          {blurb}
-        </p>
-
-        <button
-          onClick={go}
-          disabled={busy}
-          style={{
-            width:"100%", maxWidth:300, border:"none", borderRadius:999,
-            padding:"14px 24px", fontSize:15, fontWeight:800, color:"#fff",
-            background:"linear-gradient(135deg, #FF5C28 0%, #FF8C00 100%)",
-            cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1,
-          }}
-        >{busy ? "Just a moment…" : cta}</button>
-
-        {err && (
-          <div style={{ marginTop:20, color:"#FCA5A5", fontSize:14 }}>
-            {err}
-            <div style={{ marginTop:12 }}>
-              <button
-                onClick={onFailed}
-                style={{ background:"none", border:"none", color:"rgba(255,255,255,0.55)",
-                         textDecoration:"underline", cursor:"pointer", fontSize:13 }}
-              >Go to PLUG</button>
-            </div>
-          </div>
-        )}
+      <div style={{ maxWidth:400, width:"100%" }}>
+        <div style={{ marginBottom:28 }}><PlugMark size={48} light /></div>
+        {stage === "done" && <div style={{ fontSize:44, marginBottom:8 }}>✅</div>}
+        <h1 style={{ fontSize:24, fontWeight:800, letterSpacing:"-0.02em", margin:"0 0 10px" }}>{title}</h1>
+        <p style={{ margin:"0 0 24px", color:"rgba(255,255,255,0.72)", fontSize:15 }}>{body}</p>
+        {action}
       </div>
     </div>
   );
@@ -11338,34 +11440,21 @@ export default function PlugApp() {
        only ever needs to run against that first value. */
   }, []);
 
+  /* Signs in with the session an email link produced and returns the user,
+     so the landing page can say "Email confirmed" / "Password updated" and
+     who to — instead of dropping people on the homepage and leaving them to
+     guess whether anything happened. */
   async function onEmailLinkSession(session) {
-    const ty = emailLink?.type;
-    setEmailLink(null);
-    /* Recovery hands the existing reset screen a token and gets out of the
-       way, rather than signing the person in and leaving them to find the
-       change-password form themselves. */
-    if (ty === "recovery") { setRecoveryToken(session.access_token); return; }
     await saveSession(session);
     const u = await getCurrentUser();
     if (u) setUser(sanitizeUser(u));
+    return u;
   }
 
-  /* Detect a password-recovery link (#access_token=...&type=recovery) on mount.
-     If present, capture the token and show the reset screen instead of the
-     normal app session restore. */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash || "";
-    if (hash.includes("type=recovery") && hash.includes("access_token=")) {
-      const params = new URLSearchParams(hash.replace(/^#/, ""));
-      const tok = params.get("access_token");
-      if (tok) {
-        setRecoveryToken(tok);
-        /* Strip the token from the URL so it isn't left in history. */
-        try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
-      }
-    }
-  }, []);
+  /* The old effect that looked for #access_token=...&type=recovery lived here.
+     It never fired: the "URL follows the view" effect runs first and replaces
+     the address with plain "/", hash included. readEmailLinkFromUrl now reads
+     the hash during the first render instead. */
 
   /* Load persisted session on mount */
   useEffect(() => {
@@ -11731,10 +11820,10 @@ export default function PlugApp() {
       <>
         <style>{GLOBAL_CSS}</style>
         <EmailLinkScreen
-          type={emailLink.type}
-          tokenHash={emailLink.tokenHash}
+          link={emailLink}
           onSession={onEmailLinkSession}
-          onFailed={() => setEmailLink(null)}
+          onFinish={() => setEmailLink(null)}
+          onRequestNew={() => { setEmailLink(null); setAuthModal(true); }}
         />
       </>
     );
@@ -11934,15 +12023,15 @@ export default function PlugApp() {
             </>
           ) : (
             <>
-              <button onClick={() => setAuthModal(true)} className="btn"
-                style={{ background:"transparent", border:`1.5px solid ${navOnHero ? "rgba(255,255,255,0.4)" : C.border}`,
-                         borderRadius:99, padding:"7px 16px", fontSize:13, fontWeight:600,
-                         color: navOnHero ? "#fff" : C.black }}>Log in</button>
+              {/* One button. "Log in" and "Sign up" both opened the same
+                  modal on the same tab, so two buttons only asked people to
+                  make a choice that made no difference. The modal has its own
+                  Log in / Sign up switch at the top. */}
               <button onClick={() => setAuthModal(true)} className="btn"
                 style={{ background: navOnHero ? "#fff" : C.orange,
                          border:"none", borderRadius:99, padding:"8px 18px", fontSize:13,
-                         fontWeight:700, color: navOnHero ? C.black : "#fff",
-                         boxShadow: navOnHero ? "none" : C.shadowButton }}>Sign up</button>
+                         fontWeight:700, color: navOnHero ? C.black : "#fff", whiteSpace:"nowrap",
+                         boxShadow: navOnHero ? "none" : C.shadowButton }}>Log in / Sign up</button>
             </>
           )}
           <button onClick={() => { setCartOpen(true); setNotifOpen(false); }} className="btn"
